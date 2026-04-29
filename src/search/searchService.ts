@@ -1,10 +1,9 @@
-import type { Conversation, ConversationListItem, Message } from '../shared/types';
+import type { Conversation, ConversationListItem } from '../shared/types';
 import { buildSnippet } from '../shared/utils';
 
 export function searchConversations(
   keyword: string,
-  conversations: Conversation[],
-  messages: Message[]
+  conversations: Conversation[]
 ): ConversationListItem[] {
   const normalizedKeyword = keyword.trim().toLowerCase();
 
@@ -12,23 +11,12 @@ export function searchConversations(
     return [...conversations].sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
-  const messagesByConversation = new Map<string, Message[]>();
-
-  for (const message of messages) {
-    const list = messagesByConversation.get(message.conversationId) ?? [];
-    list.push(message);
-    messagesByConversation.set(message.conversationId, list);
-  }
-
   const results: ConversationListItem[] = [];
 
   for (const conversation of conversations) {
-    const messageList = messagesByConversation.get(conversation.id) ?? [];
     const searchableValues = [
-      conversation.title,
-      conversation.summary,
-      conversation.sourceUrl,
-      ...messageList.map((message) => message.content)
+      conversation.question,
+      ...(conversation.metadata?.repoNames ?? [])
     ];
     const joined = searchableValues.join('\n');
 

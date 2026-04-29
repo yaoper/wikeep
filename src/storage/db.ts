@@ -27,19 +27,21 @@ let databasePromise: Promise<IDBPDatabase<WikeepDBSchema>> | null = null;
 export function getDb(): Promise<IDBPDatabase<WikeepDBSchema>> {
   if (!databasePromise) {
     databasePromise = openDB<WikeepDBSchema>(DB_NAME, DB_VERSION, {
-      upgrade(database) {
-        const conversations = database.createObjectStore('conversations', {
-          keyPath: 'id'
-        });
-        conversations.createIndex('by-updatedAt', 'updatedAt');
-        conversations.createIndex('by-sourceUrl', 'sourceUrl', { unique: true });
-        conversations.createIndex('by-sourceSessionId', 'sourceSessionId', { unique: false });
+      upgrade(database, oldVersion) {
+        if (oldVersion < 1) {
+          const conversations = database.createObjectStore('conversations', {
+            keyPath: 'id'
+          });
+          conversations.createIndex('by-updatedAt', 'updatedAt');
+          conversations.createIndex('by-sourceUrl', 'sourceUrl', { unique: true });
+          conversations.createIndex('by-sourceSessionId', 'sourceSessionId', { unique: false });
 
-        const messages = database.createObjectStore('messages', {
-          keyPath: 'id'
-        });
-        messages.createIndex('by-conversationId', 'conversationId');
-        messages.createIndex('by-conversationId-order', ['conversationId', 'order']);
+          const messages = database.createObjectStore('messages', {
+            keyPath: 'id'
+          });
+          messages.createIndex('by-conversationId', 'conversationId');
+          messages.createIndex('by-conversationId-order', ['conversationId', 'order']);
+        }
       }
     });
   }

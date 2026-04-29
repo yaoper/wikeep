@@ -22,6 +22,7 @@ import {
   deleteConversation,
   getConversationDetail,
   listConversations,
+  pruneLegacyConversationData,
   upsertCapturedSession
 } from '../storage/conversationRepository';
 import { ensureSettings, getSettings, updateSettings } from '../storage/settingsRepository';
@@ -132,9 +133,16 @@ async function handleRuntimeCommand(
   }
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
+async function initializeExtension(): Promise<void> {
   await ensureSettings();
+  await pruneLegacyConversationData();
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await initializeExtension();
 });
+
+void initializeExtension();
 
 chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResponse) => {
   handleRuntimeCommand(request.command, request.payload)

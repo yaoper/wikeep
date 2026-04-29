@@ -3,7 +3,6 @@ export type CaptureMethod = 'api' | 'dom';
 
 export interface ConversationMetadata {
   repoNames?: string[];
-  orgId?: string;
 }
 
 export interface MessageCitation {
@@ -20,17 +19,12 @@ export interface MessageMetadata {
 
 export interface Conversation {
   id: string;
-  title: string;
   source: 'deepwiki';
+  question: string;
   sourceUrl: string;
-  sourceHost: string;
   sourceSessionId?: string;
   createdAt: number;
   updatedAt: number;
-  messageCount: number;
-  summary: string;
-  tags: string[];
-  isFavorite: boolean;
   metadata?: ConversationMetadata;
   schemaVersion: number;
 }
@@ -82,7 +76,6 @@ export interface ConversationListItem extends Conversation {
 
 export interface ConversationDetail {
   conversation: Conversation;
-  messages: Message[];
 }
 
 export interface CaptureResult {

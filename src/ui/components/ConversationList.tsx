@@ -2,35 +2,82 @@ import type { ConversationListItem } from '../../shared/types';
 
 interface ConversationListProps {
   items: ConversationListItem[];
-  selectedId: string | null;
-  onSelect: (conversationId: string) => void;
+  onDelete: (id: string) => void;
+  onCopyUrl: (url: string) => void;
 }
 
-function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN', {
-    hour12: false
-  });
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}天前`;
+  return new Date(timestamp).toLocaleDateString('zh-CN');
 }
 
-export function ConversationList({ items, selectedId, onSelect }: ConversationListProps) {
+function LinkIcon() {
   return (
-    <div className="conversation-list">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 6L14 2M14 2H10M14 2V6" />
+      <rect x="2" y="5" width="9" height="9" rx="2" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="2,4 14,4" />
+      <path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1" />
+      <path d="M3.5 4l.9 9.5a1 1 0 001 .9h5.2a1 1 0 001-.9L12.5 4" />
+    </svg>
+  );
+}
+
+export function ConversationList({ items, onDelete, onCopyUrl }: ConversationListProps) {
+  return (
+    <div className="card-list">
       {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={`conversation-card ${selectedId === item.id ? 'is-selected' : ''}`}
-          onClick={() => onSelect(item.id)}
-        >
-          <div className="conversation-card__title">{item.title}</div>
-          <div className="conversation-card__summary">
-            {item.matchedSnippet ?? item.summary ?? '暂无摘要'}
+        <div key={item.id} className="card">
+          <div className="card__body">
+            <div className="card__question">{item.matchedSnippet ?? item.question}</div>
+            {item.metadata?.repoNames?.length ? (
+              <div className="card__repos">
+                {item.metadata.repoNames.slice(0, 3).map((repo) => (
+                  <span key={repo} className="chip">
+                    {repo}
+                  </span>
+                ))}
+                {item.metadata.repoNames.length > 3 ? (
+                  <span className="chip">+{item.metadata.repoNames.length - 3}</span>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="card__time">{formatRelativeTime(item.updatedAt)}</div>
           </div>
-          <div className="conversation-card__meta">
-            <span>{formatTime(item.updatedAt)}</span>
-            <span>{item.messageCount} 条消息</span>
+
+          <div className="card__actions">
+            <button
+              type="button"
+              className="card__action-btn"
+              title="复制来源地址"
+              onClick={() => onCopyUrl(item.sourceUrl)}
+            >
+              <LinkIcon />
+            </button>
+            <button
+              type="button"
+              className="card__action-btn is-danger"
+              title="删除"
+              onClick={() => onDelete(item.id)}
+            >
+              <TrashIcon />
+            </button>
           </div>
-        </button>
+        </div>
       ))}
     </div>
   );

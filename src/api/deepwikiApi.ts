@@ -173,7 +173,6 @@ export function buildCapturePayloadFromDeepWikiSession(
       sourceHost,
       sourceSessionId,
       metadata: {
-        orgId: session.org_id,
         repoNames
       },
       messages,

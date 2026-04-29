@@ -1,5 +1,3 @@
-import type { ChangeEvent } from 'react';
-
 interface SearchBoxProps {
   value: string;
   placeholder?: string;
@@ -7,24 +5,23 @@ interface SearchBoxProps {
 }
 
 export function SearchBox({ value, placeholder, onChange }: SearchBoxProps) {
-  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange(event.target.value);
-  };
-
   return (
-    <div className="search-box">
-      <input
-        value={value}
-        onChange={handleChange}
-        placeholder={placeholder ?? '按关键词搜索'}
-        className="input"
-        type="search"
-      />
-      {value ? (
-        <button type="button" className="ghost-button" onClick={() => onChange('')}>
-          清空
-        </button>
-      ) : null}
+    <div className="search-bar">
+      <div className="search-input-wrapper">
+        <span className="search-input-icon">⌕</span>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder ?? '搜索'}
+          className="search-input"
+          type="search"
+        />
+        {value ? (
+          <button type="button" className="search-clear" onClick={() => onChange('')}>
+            ✕
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -2,10 +2,10 @@ import type { Settings } from './types';
 
 export const APP_NAME = 'Wikeep';
 export const DB_NAME = 'wikeep';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const SETTINGS_KEY = 'wikeep.settings';
 export const SEARCH_DEBOUNCE_MS = 250;
-export const CAPTURE_DEBOUNCE_MS = 1200;
+export const CAPTURE_DEBOUNCE_MS = 500;
 export const PENDING_POLL_MS = 3000;
 export const MAX_POLL_ATTEMPTS = 60;
 

@@ -1,6 +1,12 @@
 import { extractQueryIdFromUrl } from '../api/deepwikiApi';
 import { parseDeepWikiDomSnapshot } from '../parser/deepwikiDomParser';
-import { CAPTURE_DEBOUNCE_MS, MAX_POLL_ATTEMPTS, PENDING_POLL_MS } from '../shared/constants';
+import {
+  CAPTURE_DEBOUNCE_MS,
+  DEFAULT_SETTINGS,
+  MAX_POLL_ATTEMPTS,
+  PENDING_POLL_MS,
+  SETTINGS_KEY
+} from '../shared/constants';
 import type {
   CaptureDeepWikiSessionPayload,
   CaptureDomSnapshotPayload,
@@ -36,6 +42,20 @@ function stopPolling(): void {
   }
 
   pollingAttempts = 0;
+}
+
+function clearDebounceTimer(): void {
+  if (debounceTimer) {
+    window.clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+function disconnectObserver(): void {
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+  }
 }
 
 function startPolling(queryId: string): void {
@@ -88,68 +108,76 @@ async function runCapture(queryId: string): Promise<void> {
   });
 
   try {
-    const apiResult = await captureViaApi(queryId);
-    setStatus({
-      method: 'api',
-      lastCapturedAt: apiResult.savedAt,
-      pending: apiResult.pending,
-      reason: undefined,
-      errorMessage: undefined
-    });
-
-    if (apiResult.pending) {
-      startPolling(queryId);
-    } else {
-      stopPolling();
-    }
-    return;
-  } catch (error) {
-    setStatus({
-      method: undefined,
-      reason: 'api_fetch_failed',
-      errorMessage: ensureErrorMessage(error)
-    });
-  } finally {
-    isCapturing = false;
-  }
-
-  try {
     const domResult = await captureViaDom();
 
-    if (!domResult) {
+    if (domResult) {
       setStatus({
-        active: false,
-        reason: 'unsupported_dom_structure'
+        method: 'dom',
+        lastCapturedAt: domResult.savedAt,
+        pending: false,
+        reason: undefined,
+        errorMessage: undefined
       });
-      return;
+    } else {
+      setStatus({
+        method: undefined,
+        pending: false,
+        reason: 'dom_not_ready'
+      });
     }
 
-    setStatus({
-      active: true,
-      method: 'dom',
-      lastCapturedAt: domResult.savedAt,
-      pending: false,
-      reason: undefined,
-      errorMessage: undefined
-    });
+    try {
+      const apiResult = await captureViaApi(queryId);
+      setStatus({
+        active: true,
+        method: 'api',
+        lastCapturedAt: apiResult.savedAt,
+        pending: apiResult.pending,
+        reason: undefined,
+        errorMessage: undefined
+      });
+
+      if (apiResult.pending) {
+        startPolling(queryId);
+      } else {
+        stopPolling();
+      }
+    } catch (error) {
+      stopPolling();
+
+      if (!domResult) {
+        setStatus({
+          active: false,
+          method: undefined,
+          reason: 'api_fetch_failed',
+          errorMessage: ensureErrorMessage(error)
+        });
+        return;
+      }
+
+      setStatus({
+        active: true,
+        pending: false,
+        reason: 'api_fetch_failed',
+        errorMessage: ensureErrorMessage(error)
+      });
+    }
   } catch (error) {
     setStatus({
       active: false,
       reason: 'storage_error',
       errorMessage: ensureErrorMessage(error)
     });
+  } finally {
+    isCapturing = false;
   }
 }
 
 function setupObserver(queryId: string): void {
-  if (observer) {
-    observer.disconnect();
-  }
+  disconnectObserver();
 
   observer = new MutationObserver(() => {
-    if (debounceTimer) {
-      window.clearTimeout(debounceTimer);
-    }
+    clearDebounceTimer();
 
     debounceTimer = window.setTimeout(() => {
       void runCapture(queryId);
@@ -160,6 +188,12 @@ function setupObserver(queryId: string): void {
     childList: true,
     subtree: true
   });
+}
+
+function stopAutoCapture(): void {
+  disconnectObserver();
+  clearDebounceTimer();
+  stopPolling();
 }
 
 async function init(): Promise<void> {
@@ -191,6 +225,39 @@ async function init(): Promise<void> {
   setupObserver(queryId);
   await runCapture(queryId);
 }
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes[SETTINGS_KEY]) {
+    return;
+  }
+
+  const queryId = extractQueryIdFromUrl(window.location.href);
+
+  if (!queryId) {
+    return;
+  }
+
+  const nextSettings = changes[SETTINGS_KEY].newValue as Settings | undefined;
+
+  if (!nextSettings?.autoCaptureEnabled && nextSettings?.autoCaptureEnabled !== undefined) {
+    stopAutoCapture();
+    setStatus({
+      supported: true,
+      active: false,
+      queryId,
+      sourceUrl: window.location.href,
+      pending: false,
+      reason: 'auto_capture_disabled',
+      errorMessage: undefined
+    });
+    return;
+  }
+
+  if ((nextSettings?.autoCaptureEnabled ?? DEFAULT_SETTINGS.autoCaptureEnabled) && !observer) {
+    setupObserver(queryId);
+    void runCapture(queryId);
+  }
+});
 
 chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResponse) => {
   if (request.command === 'GET_PAGE_STATUS') {

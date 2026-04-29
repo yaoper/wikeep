@@ -6,26 +6,54 @@ import type {
   ConversationListItem,
   Message
 } from '../shared/types';
-import {
-  buildConversationId,
-  buildMessageId,
-  stableHash,
-  summarizeMessages
-} from '../shared/utils';
+import { buildConversationId, normalizeText } from '../shared/utils';
 import { getDb } from './db';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
-function getExternalMessageKey(message: Pick<Message, 'externalId' | 'role'>): string | null {
-  if (!message.externalId) {
-    return null;
-  }
-
-  return `${message.externalId}:${message.role}`;
+interface LegacyConversationRecord {
+  id: string;
+  source?: 'deepwiki';
+  title?: string;
+  question?: string;
+  summary?: string;
+  sourceUrl: string;
+  sourceSessionId?: string;
+  createdAt: number;
+  updatedAt: number;
+  metadata?: Conversation['metadata'];
+  schemaVersion?: number;
 }
 
-function getOrderMessageKey(message: Pick<Message, 'order' | 'role'>): string {
-  return `${message.order}:${message.role}`;
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => normalizeText(value)).filter(Boolean)));
+}
+
+function getLatestUserQuestion(snapshot: CapturePayload): string {
+  return (
+    snapshot.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => normalizeText(message.content))
+      .filter(Boolean)
+      .at(-1) ?? ''
+  );
+}
+
+function normalizeConversation(record: LegacyConversationRecord): Conversation {
+  const repoNames = dedupeStrings(record.metadata?.repoNames ?? []);
+  const question = record.question ?? normalizeText(record.title ?? record.summary ?? '') ?? '';
+
+  return {
+    id: record.id,
+    source: 'deepwiki',
+    question: question || '未识别问题',
+    sourceUrl: record.sourceUrl,
+    sourceSessionId: record.sourceSessionId,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    metadata: repoNames.length > 0 ? { repoNames } : undefined,
+    schemaVersion: record.schemaVersion ?? SCHEMA_VERSION
+  };
 }
 
 export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
@@ -40,125 +68,75 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
   let existingConversation: Conversation | undefined;
 
   if (snapshot.sourceSessionId) {
-    existingConversation =
+    const record =
       (await conversationStore.index('by-sourceSessionId').get(snapshot.sourceSessionId)) ?? undefined;
+    existingConversation = record ? normalizeConversation(record as LegacyConversationRecord) : undefined;
   }
 
   if (!existingConversation) {
-    existingConversation =
+    const record =
       (await conversationStore.index('by-sourceUrl').get(snapshot.sourceUrl)) ?? undefined;
+    existingConversation = record ? normalizeConversation(record as LegacyConversationRecord) : undefined;
   }
 
   const conversationId =
     existingConversation?.id ??
     buildConversationId(snapshot.sourceSessionId, snapshot.sourceUrl);
-  const existingMessages = await messageStore.index('by-conversationId').getAll(conversationId);
-  const existingByExternalId = new Map<string, Message>();
-  const existingByOrder = new Map<string, Message>();
-
-  for (const message of existingMessages) {
-    const externalKey = getExternalMessageKey(message);
-    if (externalKey) {
-      existingByExternalId.set(externalKey, message);
-    }
-
-    existingByOrder.set(getOrderMessageKey(message), message);
-  }
-
-  const nextMessages: Message[] = [];
-
-  for (const parsedMessage of snapshot.messages) {
-    const contentHash = stableHash(`${parsedMessage.role}:${parsedMessage.content}`);
-    const externalLookupKey = parsedMessage.externalId
-      ? `${parsedMessage.externalId}:${parsedMessage.role}`
-      : null;
-    const currentMessage =
-      (externalLookupKey ? existingByExternalId.get(externalLookupKey) : undefined) ??
-      existingByOrder.get(`${parsedMessage.order}:${parsedMessage.role}`);
-
-    const id =
-      currentMessage?.id ??
-      buildMessageId(
-        conversationId,
-        parsedMessage.order,
-        parsedMessage.externalId,
-        contentHash,
-        parsedMessage.role
-      );
-
-    const message: Message = {
-      id,
-      conversationId,
-      role: parsedMessage.role,
-      content: parsedMessage.content,
-      contentHash,
-      order: parsedMessage.order,
-      externalId: parsedMessage.externalId,
-      sourceNodeKey: parsedMessage.sourceNodeKey,
-      metadata: parsedMessage.metadata,
-      createdAt: currentMessage?.createdAt ?? snapshot.capturedAt,
-      updatedAt: snapshot.capturedAt,
-      schemaVersion: SCHEMA_VERSION
-    };
-
-    await messageStore.put(message);
-    nextMessages.push(message);
-  }
-
-  const allMessageIds = new Set([...existingMessages.map((message) => message.id), ...nextMessages.map((message) => message.id)]);
+  const question = getLatestUserQuestion(snapshot) || existingConversation?.question || '未识别问题';
+  const repoNames = dedupeStrings([
+    ...(existingConversation?.metadata?.repoNames ?? []),
+    ...(snapshot.metadata?.repoNames ?? [])
+  ]);
   const conversation: Conversation = {
     id: conversationId,
-    title: snapshot.title || existingConversation?.title || '未命名会话',
     source: 'deepwiki',
+    question,
     sourceUrl: snapshot.sourceUrl,
-    sourceHost: snapshot.sourceHost,
     sourceSessionId: snapshot.sourceSessionId,
     createdAt: existingConversation?.createdAt ?? snapshot.capturedAt,
     updatedAt: snapshot.capturedAt,
-    messageCount: allMessageIds.size,
-    summary: summarizeMessages(snapshot.messages),
-    tags: existingConversation?.tags ?? [],
-    isFavorite: existingConversation?.isFavorite ?? false,
-    metadata: snapshot.metadata ?? existingConversation?.metadata,
+    metadata: repoNames.length > 0 ? { repoNames } : undefined,
     schemaVersion: SCHEMA_VERSION
   };
+
+  const existingMessageIds = await messageStore.index('by-conversationId').getAllKeys(conversationId);
+  for (const messageId of existingMessageIds) {
+    await messageStore.delete(messageId as Message['id']);
+  }
 
   await conversationStore.put(conversation);
   await transaction.done;
 
   return {
     conversationId,
-    messageCount: conversation.messageCount
+    messageCount: question ? 1 : 0
   };
 }
 
 export async function listConversations(keyword?: string): Promise<ConversationListItem[]> {
   const db = await getDb();
-  const conversations = await db.getAllFromIndex('conversations', 'by-updatedAt');
-  const orderedConversations = [...conversations].sort((left, right) => right.updatedAt - left.updatedAt);
+  const records = await db.getAllFromIndex('conversations', 'by-updatedAt');
+  const orderedConversations = records
+    .map((record) => normalizeConversation(record as LegacyConversationRecord))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
 
   if (!keyword?.trim()) {
     return orderedConversations;
   }
 
-  const messages = await db.getAll('messages');
-  return searchConversations(keyword, orderedConversations, messages);
+  return searchConversations(keyword, orderedConversations);
 }
 
 export async function getConversationDetail(conversationId: string): Promise<ConversationDetail | null> {
   const db = await getDb();
-  const conversation = await db.get('conversations', conversationId);
+  const record = await db.get('conversations', conversationId);
 
-  if (!conversation) {
+  if (!record) {
     return null;
   }
 
-  const messages = await db.getAllFromIndex('messages', 'by-conversationId', conversationId);
-  messages.sort((left, right) => left.order - right.order);
-
   return {
-    conversation,
-    messages
+    conversation: normalizeConversation(record as LegacyConversationRecord)
   };
 }
 
@@ -181,5 +159,19 @@ export async function clearAllData(): Promise<void> {
   const transaction = db.transaction(['conversations', 'messages'], 'readwrite');
   await transaction.objectStore('messages').clear();
   await transaction.objectStore('conversations').clear();
+  await transaction.done;
+}
+
+export async function pruneLegacyConversationData(): Promise<void> {
+  const db = await getDb();
+  const transaction = db.transaction(['conversations', 'messages'], 'readwrite');
+  const conversationStore = transaction.objectStore('conversations');
+  const records = await conversationStore.getAll();
+
+  for (const record of records) {
+    await conversationStore.put(normalizeConversation(record as LegacyConversationRecord));
+  }
+
+  await transaction.objectStore('messages').clear();
   await transaction.done;
 }
