@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Wikeep",
+  "description": "Save and search DeepWiki conversations locally.",
+  "version": "0.1.0",
+  "permissions": ["storage", "sidePanel", "activeTab"],
+  "host_permissions": ["https://deepwiki.com/*", "https://api.devin.ai/ada/query/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://deepwiki.com/search/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Wikeep",
+    "default_popup": "popup.html"
+  }
+}
