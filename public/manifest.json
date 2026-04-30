@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Wikeep",
+  "name": "Wikeep - Save and search DeepWiki",
   "description": "Save and search DeepWiki conversations locally.",
   "version": "0.1.0",
   "permissions": ["storage", "sidePanel", "activeTab"],

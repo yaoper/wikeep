@@ -41,46 +41,14 @@ function getDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
-function isStatusPending(status?: CaptureStatus): boolean {
-  return Boolean(status?.pending || (status?.active && !status?.method));
-}
-
-function isStatusSaved(status?: CaptureStatus): boolean {
-  return Boolean(status?.method === 'api' || status?.method === 'dom' || status?.reason === 'already_saved');
-}
-
-async function setActionBadgeForTab(tabId: number, url: string | undefined, status?: CaptureStatus): Promise<void> {
-  const supported = Boolean(url && extractQueryIdFromUrl(url));
-  let color = '#888780';
-  let title = 'Wikeep';
-
-  if (!supported) {
-    title = 'Wikeep：非 DeepWiki 页面';
-  } else if (isStatusPending(status)) {
-    color = '#BA7517';
-    title = 'Wikeep：Session 保存中';
-  } else if (isStatusSaved(status)) {
-    color = '#1D9E75';
-    title = 'Wikeep：Session 已保存';
-  } else {
-    title = 'Wikeep：等待识别当前页面';
-  }
-
+async function clearActionBadgeForTab(tabId: number): Promise<void> {
   await chrome.action.setBadgeText({
     tabId,
-    text: '●'
-  });
-  await chrome.action.setBadgeTextColor({
-    tabId,
-    color: '#FFFFFF'
-  });
-  await chrome.action.setBadgeBackgroundColor({
-    tabId,
-    color
+    text: ''
   });
   await chrome.action.setTitle({
     tabId,
-    title
+    title: 'Wikeep'
   });
 }
 
@@ -90,8 +58,6 @@ async function cacheTabStatus(tabId: number, url: string | undefined, status?: C
   } else {
     tabStatusCache.delete(tabId);
   }
-
-  await setActionBadgeForTab(tabId, url, status ?? undefined);
 }
 
 function stopBackgroundCapturePolling(tabId: number): void {
@@ -105,7 +71,7 @@ function stopBackgroundCapturePolling(tabId: number): void {
   backgroundCaptureAttempts.delete(tabId);
 }
 
-async function syncActiveTabBadge(): Promise<void> {
+async function clearActiveTabBadge(): Promise<void> {
   const [tab] = await chrome.tabs.query({
     active: true,
     currentWindow: true
@@ -115,8 +81,7 @@ async function syncActiveTabBadge(): Promise<void> {
     return;
   }
 
-  const status = await getPageStatus(tab.id);
-  await cacheTabStatus(tab.id, tab.url, status ?? tabStatusCache.get(tab.id));
+  await clearActionBadgeForTab(tab.id);
 }
 
 async function notifyActiveTabContextChanged(): Promise<void> {
@@ -276,7 +241,7 @@ async function ensureActiveTabCaptureProgress(): Promise<void> {
 }
 
 async function handleActiveTabChange(): Promise<void> {
-  await syncActiveTabBadge();
+  await clearActiveTabBadge();
   await notifyActiveTabContextChanged();
   await ensureActiveTabCaptureProgress();
 }
