@@ -145,6 +145,15 @@ function BackIcon() {
   );
 }
 
+function ToastIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
 export function SidePanelApp() {
   const [view, setView] = useState<View>('history');
   const [keyword, setKeyword] = useState('');
@@ -263,6 +272,18 @@ export function SidePanelApp() {
       void loadConversations(debouncedKeyword, { silent: true });
     }
   }, [activeContext?.status?.lastCapturedAt, debouncedKeyword]);
+
+  useEffect(() => {
+    if (!infoMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setInfoMessage(null);
+    }, 2800);
+
+    return () => window.clearTimeout(timer);
+  }, [infoMessage]);
 
   function handleBack() {
     setView('history');
@@ -385,62 +406,67 @@ export function SidePanelApp() {
 
   return (
     <div className="panel">
-      <div className="panel__header">
+      <div className={showBack ? 'panel__toolbar panel__toolbar--settings' : 'panel__toolbar'}>
         {showBack ? (
-          <button className="back-btn" onClick={handleBack}>
-            <BackIcon />
-            <span>返回</span>
-          </button>
+          <>
+            <button className="back-btn" onClick={handleBack}>
+              <BackIcon />
+              <span>返回</span>
+            </button>
+            <div className="panel__toolbar-title">设置</div>
+          </>
         ) : (
           <>
-            <div className="brand">
-              <span className="brand__mark">W</span>
-              <span className="brand__text panel__logo">Wikeep</span>
-            </div>
-            <div className="panel__tools">
+            <SearchBox value={keyword} onChange={setKeyword} placeholder="支持搜索仓库名称或者对话内容" />
+            <button
+              type="button"
+              className="btn-icon"
+              title="刷新"
+              onClick={() => void refreshPanel()}
+            >
+              <RefreshIcon />
+            </button>
+            <div className="dropdown" ref={menuRef}>
               <button
                 type="button"
                 className="btn-icon"
-                title="刷新"
-                onClick={() => void refreshPanel()}
+                title="更多"
+                onClick={() => setMenuOpen((open) => !open)}
               >
-                <RefreshIcon />
+                <MoreIcon />
               </button>
-              <div className="dropdown" ref={menuRef}>
-                <button
-                  type="button"
-                  className="btn-icon"
-                  title="更多"
-                  onClick={() => setMenuOpen((open) => !open)}
-                >
-                  <MoreIcon />
-                </button>
-                {menuOpen ? (
-                  <div className="dropdown__menu">
-                    <button
-                      type="button"
-                      className="dropdown__item"
-                      onClick={() => {
-                        setView('settings');
-                        setMenuOpen(false);
-                      }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
-                        <circle cx="8" cy="8" r="2.5" />
-                        <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
-                      </svg>
-                      设置
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              {menuOpen ? (
+                <div className="dropdown__menu">
+                  <button
+                    type="button"
+                    className="dropdown__item"
+                    onClick={() => {
+                      setView('settings');
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
+                      <circle cx="8" cy="8" r="2.5" />
+                      <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
+                    </svg>
+                    设置
+                  </button>
+                </div>
+              ) : null}
             </div>
           </>
         )}
       </div>
 
       {errorMessage ? <div className="banner banner--error">{errorMessage}</div> : null}
-      {infoMessage ? <div className="banner banner--info">{infoMessage}</div> : null}
+      {infoMessage ? (
+        <div className="toast-wrap">
+          <div className="toast">
+            <ToastIcon />
+            {infoMessage}
+          </div>
+        </div>
+      ) : null}
 
       {view === 'history' ? (
         <div
@@ -530,7 +556,6 @@ export function SidePanelApp() {
           </div>
         ) : (
           <>
-            <SearchBox value={keyword} onChange={setKeyword} placeholder="支持搜索仓库名称或者对话内容" />
             {loading ? (
               <EmptyState title="正在加载历史" description="Wikeep 正在读取本地会话记录。" />
             ) : conversations.length === 0 ? (
