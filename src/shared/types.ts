@@ -94,6 +94,7 @@ export interface CaptureResult {
   pending: boolean;
   method: CaptureMethod;
   savedAt: number;
+  repoNames?: string[];
   performance?: CapturePerformance;
 }
 
@@ -101,6 +102,7 @@ export interface ExistingCaptureLookupResult {
   exists: boolean;
   conversationId?: string;
   updatedAt?: number;
+  repoNames?: string[];
 }
 
 export type CaptureStatusReason =
@@ -125,6 +127,7 @@ export interface CaptureStatus {
   errorMessage?: string;
   performance?: CapturePerformance;
   existingConversationId?: string;
+  repoNames?: string[];
 }
 
 export interface ActiveTabContext {

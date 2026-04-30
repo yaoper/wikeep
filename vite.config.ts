@@ -13,7 +13,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         sidepanel: resolve(projectRoot, 'sidepanel.html'),
-        popup: resolve(projectRoot, 'popup.html'),
         background: resolve(projectRoot, 'src/background/index.ts')
       },
       output: {

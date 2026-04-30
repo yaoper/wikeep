@@ -157,7 +157,8 @@ export async function lookupConversationBySourceSessionId(
   return {
     exists: true,
     conversationId: conversation.id,
-    updatedAt: conversation.updatedAt
+    updatedAt: conversation.updatedAt,
+    repoNames: conversation.metadata?.repoNames
   };
 }
 

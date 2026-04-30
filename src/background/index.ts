@@ -11,6 +11,7 @@ import type {
   GetConversationDetailPayload,
   ListConversationsPayload,
   LookupConversationByQueryIdPayload,
+  ReportPageStatusPayload,
   RuntimeCommand,
   RuntimeRequest,
   RuntimeResponse,
@@ -29,8 +30,90 @@ import {
 } from '../storage/conversationRepository';
 import { ensureSettings, getSettings, updateSettings } from '../storage/settingsRepository';
 
+const tabStatusCache = new Map<number, CaptureStatus>();
+
 function getDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
+function isStatusPending(status?: CaptureStatus): boolean {
+  return Boolean(status?.pending || (status?.active && !status?.method));
+}
+
+function isStatusSaved(status?: CaptureStatus): boolean {
+  return Boolean(status?.method === 'api' || status?.method === 'dom' || status?.reason === 'already_saved');
+}
+
+async function setActionBadgeForTab(tabId: number, url: string | undefined, status?: CaptureStatus): Promise<void> {
+  const supported = Boolean(url && extractQueryIdFromUrl(url));
+  let color = '#888780';
+  let title = 'Wikeep';
+
+  if (!supported) {
+    title = 'Wikeep：非 DeepWiki 页面';
+  } else if (isStatusPending(status)) {
+    color = '#BA7517';
+    title = 'Wikeep：Session 保存中';
+  } else if (isStatusSaved(status)) {
+    color = '#1D9E75';
+    title = 'Wikeep：Session 已保存';
+  } else {
+    title = 'Wikeep：等待识别当前页面';
+  }
+
+  await chrome.action.setBadgeText({
+    tabId,
+    text: '●'
+  });
+  await chrome.action.setBadgeTextColor({
+    tabId,
+    color: '#FFFFFF'
+  });
+  await chrome.action.setBadgeBackgroundColor({
+    tabId,
+    color
+  });
+  await chrome.action.setTitle({
+    tabId,
+    title
+  });
+}
+
+async function cacheTabStatus(tabId: number, url: string | undefined, status?: CaptureStatus | null): Promise<void> {
+  if (status) {
+    tabStatusCache.set(tabId, status);
+  } else {
+    tabStatusCache.delete(tabId);
+  }
+
+  await setActionBadgeForTab(tabId, url, status ?? undefined);
+}
+
+async function syncActiveTabBadge(): Promise<void> {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+
+  if (!tab?.id) {
+    return;
+  }
+
+  const status = await getPageStatus(tab.id);
+  await cacheTabStatus(tab.id, tab.url, status ?? tabStatusCache.get(tab.id));
+}
+
+async function reportPageStatus(
+  sender: chrome.runtime.MessageSender,
+  payload: ReportPageStatusPayload
+): Promise<void> {
+  const tabId = sender.tab?.id;
+
+  if (!tabId) {
+    return;
+  }
+
+  await cacheTabStatus(tabId, sender.tab?.url, payload.status);
 }
 
 async function captureViaApi(payload: CaptureDeepWikiSessionPayload): Promise<CaptureResult> {
@@ -45,12 +128,13 @@ async function captureViaApi(payload: CaptureDeepWikiSessionPayload): Promise<Ca
   const result = await upsertCapturedSession(snapshot);
   const apiPersistMs = getDurationMs(persistStartedAt);
 
-  return {
+  const response: CaptureResult = {
     conversationId: result.conversationId,
     messageCount: result.messageCount,
     pending,
     method: 'api',
     savedAt: snapshot.capturedAt,
+    repoNames: snapshot.metadata?.repoNames,
     performance: {
       totalMs: getDurationMs(requestStartedAt),
       apiFetchMs,
@@ -58,6 +142,21 @@ async function captureViaApi(payload: CaptureDeepWikiSessionPayload): Promise<Ca
       apiPersistMs
     }
   };
+
+  if (payload.tabId) {
+    await cacheTabStatus(payload.tabId, payload.sourceUrl, {
+      supported: true,
+      active: pending,
+      queryId: payload.queryId,
+      sourceUrl: payload.sourceUrl,
+      method: 'api',
+      lastCapturedAt: snapshot.capturedAt,
+      pending,
+      performance: response.performance
+    });
+  }
+
+  return response;
 }
 
 async function captureViaDom(payload: CaptureDomSnapshotPayload): Promise<CaptureResult> {
@@ -70,6 +169,7 @@ async function captureViaDom(payload: CaptureDomSnapshotPayload): Promise<Captur
     pending: false,
     method: 'dom',
     savedAt: payload.snapshot.capturedAt,
+    repoNames: payload.snapshot.metadata?.repoNames,
     performance: {
       totalMs: getDurationMs(requestStartedAt)
     }
@@ -82,7 +182,7 @@ async function getPageStatus(tabId: number): Promise<CaptureStatus | null> {
       command: 'GET_PAGE_STATUS'
     } satisfies RuntimeRequest)) as CaptureStatus | null;
   } catch {
-    return null;
+    return tabStatusCache.get(tabId) ?? null;
   }
 }
 
@@ -128,7 +228,8 @@ async function openSidePanelForActiveTab(): Promise<void> {
 
 async function handleRuntimeCommand(
   command: RuntimeCommand,
-  payload: unknown
+  payload: unknown,
+  sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
   switch (command) {
     case 'CAPTURE_DEEPWIKI_SESSION':
@@ -153,6 +254,8 @@ async function handleRuntimeCommand(
       return openSidePanelForActiveTab();
     case 'LOOKUP_CAPTURE_BY_QUERY_ID':
       return lookupConversationBySourceSessionId((payload as LookupConversationByQueryIdPayload).queryId);
+    case 'REPORT_PAGE_STATUS':
+      return reportPageStatus(sender, payload as ReportPageStatusPayload);
     default:
       throw new Error(`Unsupported runtime command: ${String(command)}`);
   }
@@ -161,6 +264,10 @@ async function handleRuntimeCommand(
 async function initializeExtension(): Promise<void> {
   await ensureSettings();
   await pruneLegacyConversationData();
+  await chrome.sidePanel.setPanelBehavior({
+    openPanelOnActionClick: true
+  });
+  await syncActiveTabBadge();
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -169,8 +276,32 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 void initializeExtension();
 
-chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResponse) => {
-  handleRuntimeCommand(request.command, request.payload)
+chrome.tabs.onActivated.addListener(() => {
+  void syncActiveTabBadge();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading' || changeInfo.url) {
+    tabStatusCache.delete(tabId);
+  }
+
+  if (tab.active && (changeInfo.status || changeInfo.url)) {
+    void setActionBadgeForTab(tabId, tab.url, tabStatusCache.get(tabId));
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabStatusCache.delete(tabId);
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+    void syncActiveTabBadge();
+  }
+});
+
+chrome.runtime.onMessage.addListener((request: RuntimeRequest, sender, sendResponse) => {
+  handleRuntimeCommand(request.command, request.payload, sender)
     .then((data) => {
       const response: RuntimeResponse = {
         ok: true,

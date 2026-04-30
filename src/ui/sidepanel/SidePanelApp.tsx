@@ -4,26 +4,145 @@ import { ConversationList } from '../components/ConversationList';
 import { EmptyState } from '../components/EmptyState';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { SEARCH_DEBOUNCE_MS } from '../../shared/constants';
-import type { ConversationListItem, Settings } from '../../shared/types';
-import { sendRuntimeMessage } from '../../shared/utils';
+import type { ActiveTabContext, CaptureResult, ConversationListItem, Settings } from '../../shared/types';
+import { ensureErrorMessage, sendRuntimeMessage } from '../../shared/utils';
 import type {
+  CaptureDeepWikiSessionPayload,
   DeleteConversationPayload,
   ListConversationsPayload,
+  RuntimeRequest,
+  RuntimeResponse,
   UpdateSettingsPayload
 } from '../../shared/messages';
 
 type View = 'history' | 'settings';
+type StatusTone = 'saved' | 'pending' | 'unknown';
 
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes}分钟前`;
+  if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return `${hours} 小时前`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}天前`;
+  if (days < 30) return `${days} 天前`;
   return new Date(timestamp).toLocaleDateString('zh-CN');
+}
+
+function isStatusPending(context: ActiveTabContext | null): boolean {
+  const status = context?.status;
+  return Boolean(status?.pending || (status?.active && !status?.method) || status?.reason === 'dom_not_ready');
+}
+
+function getStatusTone(context: ActiveTabContext | null): StatusTone {
+  if (!context?.supported) {
+    return 'unknown';
+  }
+
+  const status = context.status;
+
+  if (isStatusPending(context)) {
+    return 'pending';
+  }
+
+  if (
+    status?.method === 'api' ||
+    status?.method === 'dom' ||
+    status?.reason === 'already_saved' ||
+    (status?.reason === 'api_fetch_failed' && status.method === 'dom')
+  ) {
+    return 'saved';
+  }
+
+  return 'unknown';
+}
+
+function getStatusTitle(context: ActiveTabContext | null): string {
+  if (!context?.supported) return '非 DeepWiki 页面';
+  if (context.status?.reason === 'auto_capture_disabled') return '自动保存已关闭';
+  if (isStatusPending(context)) return 'Session 保存中';
+  if (
+    context.status?.method === 'api' ||
+    context.status?.method === 'dom' ||
+    context.status?.reason === 'already_saved'
+  ) {
+    return 'Session 已保存';
+  }
+  if (context.status?.reason === 'storage_error') return '保存失败';
+  return '等待识别当前 Session';
+}
+
+function getStatusSubtitle(context: ActiveTabContext | null): string {
+  if (!context?.supported) return '切换到 DeepWiki 后自动识别 Session';
+  if (context.status?.reason === 'auto_capture_disabled') return '当前页可通过右侧操作手动保存';
+  if (context.status?.reason === 'storage_error') return context.status.errorMessage ?? '请稍后重试';
+  if (context.status?.reason === 'api_fetch_failed' && context.status.method === 'dom') {
+    return '已通过 DOM 保存，API 同步失败';
+  }
+  if (isStatusPending(context)) return '正在获取页面 Session 信息';
+
+  if (
+    context.status?.lastCapturedAt &&
+    (
+      context.status?.method === 'api' ||
+      context.status?.method === 'dom' ||
+      context.status?.reason === 'already_saved'
+    )
+  ) {
+    const primaryRepo = context.status.repoNames?.find(Boolean);
+    const relativeTime = formatRelativeTime(context.status.lastCapturedAt);
+    return primaryRepo ? `${primaryRepo} · ${relativeTime}` : relativeTime;
+  }
+
+  return '打开 DeepWiki Session 页面后自动识别';
+}
+
+function getStatusActionLabel(context: ActiveTabContext | null): string | null {
+  if (!context?.supported) {
+    return null;
+  }
+
+  if (isStatusPending(context) || context.status?.reason === 'auto_capture_disabled') {
+    return '手动保存';
+  }
+
+  return '重新保存';
+}
+
+function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
+  if (!context?.supported) {
+    return false;
+  }
+
+  return isStatusPending(context) || !context.status;
+}
+
+function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
 }
 
 export function SidePanelApp() {
@@ -32,6 +151,8 @@ export function SidePanelApp() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [contextLoading, setContextLoading] = useState(true);
+  const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
@@ -41,9 +162,11 @@ export function SidePanelApp() {
   const debouncedKeyword = useDebouncedValue(keyword, SEARCH_DEBOUNCE_MS);
   const showBack = view === 'settings';
 
-  async function loadConversations(nextKeyword?: string) {
-    setLoading(true);
-    setErrorMessage(null);
+  async function loadConversations(nextKeyword?: string, options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setLoading(true);
+      setErrorMessage(null);
+    }
 
     try {
       const items = await sendRuntimeMessage<ConversationListItem[], ListConversationsPayload>(
@@ -54,7 +177,26 @@ export function SidePanelApp() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function loadActiveContext(options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setContextLoading(true);
+    }
+
+    try {
+      const nextContext = await sendRuntimeMessage<ActiveTabContext>('GET_ACTIVE_TAB_CONTEXT');
+      setActiveContext(nextContext);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (!options?.silent) {
+        setContextLoading(false);
+      }
     }
   }
 
@@ -63,9 +205,20 @@ export function SidePanelApp() {
     setSettings(nextSettings);
   }
 
+  async function refreshPanel(options?: { silent?: boolean }) {
+    await Promise.all([
+      loadConversations(debouncedKeyword, options),
+      loadActiveContext(options)
+    ]);
+  }
+
   useEffect(() => {
     void loadConversations(debouncedKeyword);
   }, [debouncedKeyword]);
+
+  useEffect(() => {
+    void loadActiveContext();
+  }, []);
 
   useEffect(() => {
     if (view === 'settings') {
@@ -83,6 +236,33 @@ export function SidePanelApp() {
     document.addEventListener('mousedown', onOutsideClick);
     return () => document.removeEventListener('mousedown', onOutsideClick);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!shouldAutoRefreshContext(activeContext)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadActiveContext({ silent: true });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [activeContext]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void refreshPanel({ silent: true });
+    };
+
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [debouncedKeyword]);
+
+  useEffect(() => {
+    if (activeContext?.status?.lastCapturedAt) {
+      void loadConversations(debouncedKeyword, { silent: true });
+    }
+  }, [activeContext?.status?.lastCapturedAt, debouncedKeyword]);
 
   function handleBack() {
     setView('history');
@@ -118,6 +298,7 @@ export function SidePanelApp() {
       patch: { autoCaptureEnabled: !settings.autoCaptureEnabled }
     });
     setSettings(nextSettings);
+    await loadActiveContext();
   }
 
   async function handleCopySourceUrl(sourceUrl: string) {
@@ -130,13 +311,85 @@ export function SidePanelApp() {
     }
   }
 
+  async function handleManualSave() {
+    if (!activeContext?.queryId || !activeContext.url) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    if (activeContext.tabId) {
+      try {
+        const tabResponse = (await chrome.tabs.sendMessage(activeContext.tabId, {
+          command: 'TRIGGER_RECAPTURE'
+        } satisfies RuntimeRequest)) as RuntimeResponse<ActiveTabContext['status']>;
+
+        if (!tabResponse.ok) {
+          throw new Error(tabResponse.error?.message ?? '内容脚本重新抓取失败');
+        }
+
+        setActiveContext((current) => current ? { ...current, status: tabResponse.data ?? current.status } : current);
+        setInfoMessage('当前页面 Session 已触发重新保存。');
+        await refreshPanel();
+        return;
+      } catch {
+        // Fall through to background capture fallback.
+      }
+    }
+
+    try {
+      const captureResult = await sendRuntimeMessage<CaptureResult, CaptureDeepWikiSessionPayload>(
+        'CAPTURE_DEEPWIKI_SESSION',
+        {
+          queryId: activeContext.queryId,
+          sourceUrl: activeContext.url,
+          tabId: activeContext.tabId
+        }
+      );
+
+      setActiveContext((current) =>
+        current
+          ? {
+              ...current,
+              status: {
+                ...(current.status ?? {
+                  supported: true,
+                  active: true,
+                  queryId: current.queryId,
+                  sourceUrl: current.url
+                }),
+                method: captureResult.method,
+                lastCapturedAt: captureResult.savedAt,
+                pending: captureResult.pending,
+                repoNames: captureResult.repoNames,
+                reason: undefined,
+                errorMessage: undefined,
+                performance: captureResult.performance,
+                existingConversationId: undefined
+              }
+            }
+          : current
+      );
+
+      setInfoMessage('当前页面 Session 已通过后台重新保存。');
+      await refreshPanel();
+    } catch (error) {
+      setErrorMessage(`重新保存失败：${ensureErrorMessage(error)}`);
+    }
+  }
+
+  const statusTone = getStatusTone(activeContext);
+  const statusActionLabel = getStatusActionLabel(activeContext);
+  const showRecentLabel = !keyword.trim() && conversations.length > 0;
+
   return (
     <div className="panel">
-      {/* ── Header ── */}
       <div className="panel__header">
         {showBack ? (
           <button className="back-btn" onClick={handleBack}>
-            ← 返回
+            <BackIcon />
+            <span>返回</span>
           </button>
         ) : (
           <>
@@ -149,18 +402,18 @@ export function SidePanelApp() {
                 type="button"
                 className="btn-icon"
                 title="刷新"
-                onClick={() => void loadConversations(debouncedKeyword)}
+                onClick={() => void refreshPanel()}
               >
-                ↺
+                <RefreshIcon />
               </button>
               <div className="dropdown" ref={menuRef}>
                 <button
                   type="button"
                   className="btn-icon"
                   title="更多"
-                  onClick={() => setMenuOpen((o) => !o)}
+                  onClick={() => setMenuOpen((open) => !open)}
                 >
-                  ⋮
+                  <MoreIcon />
                 </button>
                 {menuOpen ? (
                   <div className="dropdown__menu">
@@ -172,7 +425,7 @@ export function SidePanelApp() {
                         setMenuOpen(false);
                       }}
                     >
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: 6, flexShrink: 0}}>
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
                         <circle cx="8" cy="8" r="2.5" />
                         <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
                       </svg>
@@ -186,23 +439,65 @@ export function SidePanelApp() {
         )}
       </div>
 
-      {/* ── Banners ── */}
       {errorMessage ? <div className="banner banner--error">{errorMessage}</div> : null}
       {infoMessage ? <div className="banner banner--info">{infoMessage}</div> : null}
 
-      {/* ── Content ── */}
+      {view === 'history' ? (
+        <div
+          className={[
+            'status-bar',
+            statusTone === 'saved' ? 'is-saved' : '',
+            statusTone === 'pending' ? 'is-pending' : '',
+            statusTone === 'unknown' ? 'is-unknown' : ''
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <span
+            className={[
+              'status-bar__dot',
+              statusTone === 'saved' ? 'is-saved' : '',
+              statusTone === 'pending' ? 'is-pending' : '',
+              statusTone === 'unknown' ? 'is-unknown' : ''
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          />
+          <div className="status-bar__main">
+            <div
+              className={[
+                'status-bar__title',
+                statusTone === 'saved' ? 'is-saved' : '',
+                statusTone === 'pending' ? 'is-pending' : '',
+                statusTone === 'unknown' ? 'is-unknown' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {contextLoading ? '正在读取当前页面状态' : getStatusTitle(activeContext)}
+            </div>
+            <div className="status-bar__subtitle">
+              {contextLoading ? '请稍候…' : getStatusSubtitle(activeContext)}
+            </div>
+          </div>
+          {statusActionLabel ? (
+            <button type="button" className="status-bar__action" onClick={() => void handleManualSave()}>
+              {statusActionLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="panel__content">
         {view === 'settings' ? (
-          <div className="settings">
-            <div>
+          <div className="settings settings--compact">
+            <div className="settings-section">
               <div className="settings__section-title">自动保存</div>
               {settings ? (
-                <div className="settings__item">
+                <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
                     <div className="settings__label">开启自动保存</div>
-                    <div className="settings__help">
-                      识别到 DeepWiki 页面后，自动将问题和仓库信息保存到本地。
-                    </div>
+                    <div className="settings__help">识别到 DeepWiki 页面后，自动将问题和仓库信息保存到本地。</div>
                   </div>
                   <label className="toggle">
                     <input
@@ -219,14 +514,14 @@ export function SidePanelApp() {
             </div>
 
             {settings ? (
-              <div>
+              <div className="settings-section">
                 <div className="settings__section-title">数据管理</div>
-                <div className="settings__item">
+                <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
                     <div className="settings__label">清空所有本地数据</div>
                     <div className="settings__help">删除所有保存的历史记录，此操作不可撤销。</div>
                   </div>
-                  <button type="button" className="btn btn--danger" onClick={() => void handleClearAllData()}>
+                  <button type="button" className="btn btn--danger settings__danger-btn" onClick={() => void handleClearAllData()}>
                     清空
                   </button>
                 </div>
@@ -235,19 +530,19 @@ export function SidePanelApp() {
           </div>
         ) : (
           <>
-            <SearchBox value={keyword} onChange={setKeyword} placeholder="按仓库名称或问题搜索" />
+            <SearchBox value={keyword} onChange={setKeyword} placeholder="支持搜索仓库名称或者对话内容" />
             {loading ? (
               <EmptyState title="正在加载历史" description="Wikeep 正在读取本地会话记录。" />
             ) : conversations.length === 0 ? (
               <EmptyState
                 title="暂无历史"
                 description={
-                  keyword ? '没有匹配当前关键词的会话。' : '打开 DeepWiki session 页面后，Wikeep 会自动保存历史。'
+                  keyword ? '没有匹配当前关键词的会话。' : '打开 DeepWiki Session 页面后，Wikeep 会自动保存历史。'
                 }
               />
             ) : (
               <>
-                {!keyword.trim() ? <div className="panel__section-label">最近</div> : null}
+                {showRecentLabel ? <div className="panel__section-label">最近</div> : null}
                 <ConversationList
                   items={conversations}
                   onDelete={(id) => void handleDeleteConversation(id)}

@@ -88,6 +88,7 @@ describe('deepwikiApi', () => {
     expect(snapshot.title).toBe('测试标题');
     expect(snapshot.sourceSessionId).toBe('demo_query');
     expect(snapshot.messages).toHaveLength(4);
+    expect(snapshot.metadata?.repoNames).toEqual(['demo/repo']);
     expect(snapshot.messages[0].content).toBe('第一个问题');
     expect(snapshot.messages[1].content).toBe('第一个回答');
     expect(snapshot.messages[1].metadata?.citations).toHaveLength(1);

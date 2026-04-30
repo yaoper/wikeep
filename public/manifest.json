@@ -20,7 +20,6 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "Wikeep",
-    "default_popup": "popup.html"
+    "default_title": "Wikeep"
   }
 }

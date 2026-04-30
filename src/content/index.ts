@@ -11,6 +11,7 @@ import type {
   CaptureDeepWikiSessionPayload,
   CaptureDomSnapshotPayload,
   LookupConversationByQueryIdPayload,
+  ReportPageStatusPayload,
   RuntimeRequest,
   RuntimeResponse
 } from '../shared/messages';
@@ -50,6 +51,15 @@ function setStatus(partial: Partial<CaptureStatus>): void {
     ...currentStatus,
     ...partial
   };
+
+  void chrome.runtime
+    .sendMessage({
+      command: 'REPORT_PAGE_STATUS',
+      payload: {
+        status: currentStatus
+      } satisfies ReportPageStatusPayload
+    } satisfies RuntimeRequest<ReportPageStatusPayload>)
+    .catch(() => undefined);
 }
 
 function getDurationMs(startedAt: number): number {
@@ -176,7 +186,8 @@ async function runCapture(queryId: string, options: RunCaptureOptions = {}): Pro
     reason: undefined,
     errorMessage: undefined,
     performance: undefined,
-    existingConversationId: undefined
+    existingConversationId: undefined,
+    repoNames: undefined
   });
 
   try {
@@ -195,6 +206,7 @@ async function runCapture(queryId: string, options: RunCaptureOptions = {}): Pro
           reason: 'already_saved',
           errorMessage: undefined,
           existingConversationId: existingCapture.conversationId,
+          repoNames: existingCapture.repoNames,
           performance: buildPerformance({ localLookupMs }, captureStartedAt)
         });
         return;
@@ -213,6 +225,7 @@ async function runCapture(queryId: string, options: RunCaptureOptions = {}): Pro
         pending: false,
         reason: undefined,
         errorMessage: undefined,
+        repoNames: domResult.repoNames,
         performance: buildPerformance({ localLookupMs, domParseMs, domPersistMs }, captureStartedAt)
       });
     } else {
@@ -235,6 +248,7 @@ async function runCapture(queryId: string, options: RunCaptureOptions = {}): Pro
         pending: apiResult.pending,
         reason: undefined,
         errorMessage: undefined,
+        repoNames: apiResult.repoNames,
         performance: buildPerformance(
           {
             localLookupMs,
@@ -310,35 +324,37 @@ async function init(): Promise<void> {
   const queryId = extractQueryIdFromUrl(window.location.href);
 
   if (!queryId) {
-    setStatus({
-      supported: false,
-      active: false,
-      reason: 'not_deepwiki_page',
-      sourceUrl: window.location.href,
+      setStatus({
+        supported: false,
+        active: false,
+        reason: 'not_deepwiki_page',
+        sourceUrl: window.location.href,
       method: undefined,
-      pending: false,
-      errorMessage: undefined,
-      performance: undefined,
-      existingConversationId: undefined
-    });
+        pending: false,
+        errorMessage: undefined,
+        performance: undefined,
+        existingConversationId: undefined,
+        repoNames: undefined
+      });
     return;
   }
 
   const settings = await sendRuntimeMessage<Settings>('GET_SETTINGS');
 
   if (!settings.autoCaptureEnabled) {
-    setStatus({
-      supported: true,
-      active: false,
-      queryId,
-      sourceUrl: window.location.href,
+      setStatus({
+        supported: true,
+        active: false,
+        queryId,
+        sourceUrl: window.location.href,
       method: undefined,
-      pending: false,
-      reason: 'auto_capture_disabled',
-      errorMessage: undefined,
-      performance: undefined,
-      existingConversationId: undefined
-    });
+        pending: false,
+        reason: 'auto_capture_disabled',
+        errorMessage: undefined,
+        performance: undefined,
+        existingConversationId: undefined,
+        repoNames: undefined
+      });
     return;
   }
 

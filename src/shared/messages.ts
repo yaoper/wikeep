@@ -21,6 +21,7 @@ export type RuntimeCommand =
   | 'GET_ACTIVE_TAB_CONTEXT'
   | 'OPEN_SIDE_PANEL'
   | 'LOOKUP_CAPTURE_BY_QUERY_ID'
+  | 'REPORT_PAGE_STATUS'
   | 'GET_PAGE_STATUS'
   | 'TRIGGER_RECAPTURE';
 
@@ -43,6 +44,7 @@ export interface RuntimeResponse<TData = unknown> {
 export interface CaptureDeepWikiSessionPayload {
   queryId: string;
   sourceUrl: string;
+  tabId?: number;
 }
 
 export interface CaptureDomSnapshotPayload {
@@ -51,6 +53,10 @@ export interface CaptureDomSnapshotPayload {
 
 export interface LookupConversationByQueryIdPayload {
   queryId: string;
+}
+
+export interface ReportPageStatusPayload {
+  status: CaptureStatus;
 }
 
 export interface ListConversationsPayload {

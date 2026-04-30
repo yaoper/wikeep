@@ -38,8 +38,7 @@ wikeep/
 │   ├── search/             # 本地全文搜索
 │   ├── api/                # DeepWiki API 交互
 │   ├── shared/             # 公共类型与工具
-│   └── ui/                 # React UI（Popup / Side Panel）
-├── popup.html              # Popup 入口页
+│   └── ui/                 # React UI（Side Panel）
 ├── sidepanel.html          # Side Panel 入口页
 ├── vite.config.ts
 └── tsconfig.json
