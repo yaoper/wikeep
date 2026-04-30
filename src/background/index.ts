@@ -5,6 +5,7 @@ import {
 } from '../api/deepwikiApi';
 import type { DeepWikiQuerySession } from '../api/deepwikiTypes';
 import type {
+  ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
   CaptureDomSnapshotPayload,
   DeleteConversationPayload,
@@ -103,6 +104,41 @@ async function syncActiveTabBadge(): Promise<void> {
   await cacheTabStatus(tab.id, tab.url, status ?? tabStatusCache.get(tab.id));
 }
 
+async function notifyActiveTabContextChanged(): Promise<void> {
+  const context = await getActiveTabContext();
+
+  try {
+    await chrome.runtime.sendMessage({
+      command: 'ACTIVE_TAB_CONTEXT_CHANGED',
+      payload: {
+        context
+      } satisfies ActiveTabContextChangedPayload
+    } satisfies RuntimeRequest<ActiveTabContextChangedPayload>);
+  } catch {
+    // No side panel listener is attached.
+  }
+}
+
+async function notifyIfActiveTabChanged(tabId: number | undefined): Promise<void> {
+  if (!tabId) {
+    return;
+  }
+
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+
+  if (tab?.id === tabId) {
+    await notifyActiveTabContextChanged();
+  }
+}
+
+async function handleActiveTabChange(): Promise<void> {
+  await syncActiveTabBadge();
+  await notifyActiveTabContextChanged();
+}
+
 async function reportPageStatus(
   sender: chrome.runtime.MessageSender,
   payload: ReportPageStatusPayload
@@ -114,6 +150,7 @@ async function reportPageStatus(
   }
 
   await cacheTabStatus(tabId, sender.tab?.url, payload.status);
+  await notifyIfActiveTabChanged(tabId);
 }
 
 async function captureViaApi(payload: CaptureDeepWikiSessionPayload): Promise<CaptureResult> {
@@ -154,6 +191,7 @@ async function captureViaApi(payload: CaptureDeepWikiSessionPayload): Promise<Ca
       pending,
       performance: response.performance
     });
+    await notifyIfActiveTabChanged(payload.tabId);
   }
 
   return response;
@@ -233,7 +271,10 @@ async function handleRuntimeCommand(
 ): Promise<unknown> {
   switch (command) {
     case 'CAPTURE_DEEPWIKI_SESSION':
-      return captureViaApi(payload as CaptureDeepWikiSessionPayload);
+      return captureViaApi({
+        ...(payload as CaptureDeepWikiSessionPayload),
+        tabId: (payload as CaptureDeepWikiSessionPayload).tabId ?? sender.tab?.id
+      });
     case 'CAPTURE_DOM_SNAPSHOT':
       return captureViaDom(payload as CaptureDomSnapshotPayload);
     case 'LIST_CONVERSATIONS':
@@ -256,6 +297,8 @@ async function handleRuntimeCommand(
       return lookupConversationBySourceSessionId((payload as LookupConversationByQueryIdPayload).queryId);
     case 'REPORT_PAGE_STATUS':
       return reportPageStatus(sender, payload as ReportPageStatusPayload);
+    case 'ACTIVE_TAB_CONTEXT_CHANGED':
+      return null;
     default:
       throw new Error(`Unsupported runtime command: ${String(command)}`);
   }
@@ -267,7 +310,7 @@ async function initializeExtension(): Promise<void> {
   await chrome.sidePanel.setPanelBehavior({
     openPanelOnActionClick: true
   });
-  await syncActiveTabBadge();
+  await handleActiveTabChange();
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -277,7 +320,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 void initializeExtension();
 
 chrome.tabs.onActivated.addListener(() => {
-  void syncActiveTabBadge();
+  void handleActiveTabChange();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -286,7 +329,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 
   if (tab.active && (changeInfo.status || changeInfo.url)) {
-    void setActionBadgeForTab(tabId, tab.url, tabStatusCache.get(tabId));
+    void handleActiveTabChange();
   }
 });
 
@@ -296,7 +339,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) {
-    void syncActiveTabBadge();
+    void handleActiveTabChange();
   }
 });
 

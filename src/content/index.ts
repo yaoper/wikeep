@@ -324,37 +324,51 @@ async function init(): Promise<void> {
   const queryId = extractQueryIdFromUrl(window.location.href);
 
   if (!queryId) {
-      setStatus({
-        supported: false,
-        active: false,
-        reason: 'not_deepwiki_page',
-        sourceUrl: window.location.href,
+    setStatus({
+      supported: false,
+      active: false,
+      reason: 'not_deepwiki_page',
+      sourceUrl: window.location.href,
       method: undefined,
-        pending: false,
-        errorMessage: undefined,
-        performance: undefined,
-        existingConversationId: undefined,
-        repoNames: undefined
-      });
+      pending: false,
+      errorMessage: undefined,
+      performance: undefined,
+      existingConversationId: undefined,
+      repoNames: undefined
+    });
     return;
   }
+
+  setStatus({
+    supported: true,
+    active: false,
+    queryId,
+    sourceUrl: window.location.href,
+    method: undefined,
+    pending: false,
+    reason: 'idle',
+    errorMessage: undefined,
+    performance: undefined,
+    existingConversationId: undefined,
+    repoNames: undefined
+  });
 
   const settings = await sendRuntimeMessage<Settings>('GET_SETTINGS');
 
   if (!settings.autoCaptureEnabled) {
-      setStatus({
-        supported: true,
-        active: false,
-        queryId,
-        sourceUrl: window.location.href,
+    setStatus({
+      supported: true,
+      active: false,
+      queryId,
+      sourceUrl: window.location.href,
       method: undefined,
-        pending: false,
-        reason: 'auto_capture_disabled',
-        errorMessage: undefined,
-        performance: undefined,
-        existingConversationId: undefined,
-        repoNames: undefined
-      });
+      pending: false,
+      reason: 'auto_capture_disabled',
+      errorMessage: undefined,
+      performance: undefined,
+      existingConversationId: undefined,
+      repoNames: undefined
+    });
     return;
   }
 

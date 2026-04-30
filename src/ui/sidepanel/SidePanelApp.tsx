@@ -7,6 +7,7 @@ import { SEARCH_DEBOUNCE_MS } from '../../shared/constants';
 import type { ActiveTabContext, CaptureResult, ConversationListItem, Settings } from '../../shared/types';
 import { ensureErrorMessage, sendRuntimeMessage } from '../../shared/utils';
 import type {
+  ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
   DeleteConversationPayload,
   ListConversationsPayload,
@@ -266,6 +267,26 @@ export function SidePanelApp() {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [debouncedKeyword]);
+
+  useEffect(() => {
+    const onMessage = (request: RuntimeRequest) => {
+      if (request.command !== 'ACTIVE_TAB_CONTEXT_CHANGED') {
+        return;
+      }
+
+      const payload = request.payload as ActiveTabContextChangedPayload | undefined;
+
+      if (!payload?.context) {
+        return;
+      }
+
+      setContextLoading(false);
+      setActiveContext(payload.context);
+    };
+
+    chrome.runtime.onMessage.addListener(onMessage);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+  }, []);
 
   useEffect(() => {
     if (activeContext?.status?.lastCapturedAt) {

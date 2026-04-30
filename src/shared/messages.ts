@@ -22,6 +22,7 @@ export type RuntimeCommand =
   | 'OPEN_SIDE_PANEL'
   | 'LOOKUP_CAPTURE_BY_QUERY_ID'
   | 'REPORT_PAGE_STATUS'
+  | 'ACTIVE_TAB_CONTEXT_CHANGED'
   | 'GET_PAGE_STATUS'
   | 'TRIGGER_RECAPTURE';
 
@@ -57,6 +58,10 @@ export interface LookupConversationByQueryIdPayload {
 
 export interface ReportPageStatusPayload {
   status: CaptureStatus;
+}
+
+export interface ActiveTabContextChangedPayload {
+  context: ActiveTabContext;
 }
 
 export interface ListConversationsPayload {
