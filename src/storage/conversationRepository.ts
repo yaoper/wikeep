@@ -4,12 +4,13 @@ import type {
   Conversation,
   ConversationDetail,
   ConversationListItem,
+  ExistingCaptureLookupResult,
   Message
 } from '../shared/types';
 import { buildConversationId, normalizeText } from '../shared/utils';
 import { getDb } from './db';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 interface LegacyConversationRecord {
   id: string;
@@ -29,13 +30,19 @@ function dedupeStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => normalizeText(value)).filter(Boolean)));
 }
 
-function getLatestUserQuestion(snapshot: CapturePayload): string {
+export function resolveConversationQuestion(snapshot: CapturePayload): string {
+  const normalizedTitle = normalizeText(snapshot.title ?? '');
+
+  if (normalizedTitle) {
+    return normalizedTitle;
+  }
+
   return (
     snapshot.messages
       .filter((message) => message.role === 'user')
       .map((message) => normalizeText(message.content))
       .filter(Boolean)
-      .at(-1) ?? ''
+      .at(0) ?? ''
   );
 }
 
@@ -82,7 +89,7 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
   const conversationId =
     existingConversation?.id ??
     buildConversationId(snapshot.sourceSessionId, snapshot.sourceUrl);
-  const question = getLatestUserQuestion(snapshot) || existingConversation?.question || '未识别问题';
+  const question = resolveConversationQuestion(snapshot) || existingConversation?.question || '未识别问题';
   const repoNames = dedupeStrings([
     ...(existingConversation?.metadata?.repoNames ?? []),
     ...(snapshot.metadata?.repoNames ?? [])
@@ -125,6 +132,33 @@ export async function listConversations(keyword?: string): Promise<ConversationL
   }
 
   return searchConversations(keyword, orderedConversations);
+}
+
+export async function lookupConversationBySourceSessionId(
+  sourceSessionId: string
+): Promise<ExistingCaptureLookupResult> {
+  const db = await getDb();
+  const record = await db.getFromIndex('conversations', 'by-sourceSessionId', sourceSessionId);
+
+  if (!record) {
+    return {
+      exists: false
+    };
+  }
+
+  const conversation = normalizeConversation(record as LegacyConversationRecord);
+
+  if (conversation.schemaVersion < SCHEMA_VERSION) {
+    return {
+      exists: false
+    };
+  }
+
+  return {
+    exists: true,
+    conversationId: conversation.id,
+    updatedAt: conversation.updatedAt
+  };
 }
 
 export async function getConversationDetail(conversationId: string): Promise<ConversationDetail | null> {

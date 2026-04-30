@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ActiveTabContext, CaptureResult } from '../../shared/types';
+import type { ActiveTabContext, CapturePerformance, CaptureResult } from '../../shared/types';
 import type {
   CaptureDeepWikiSessionPayload,
   RuntimeRequest,
@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 
 function getStatusDotClass(context: ActiveTabContext): string {
   if (!context.supported) return 'status-dot';
+  if (context.status?.reason === 'already_saved') return 'status-dot is-active';
   if (context.status?.pending) return 'status-dot is-pending';
   if (context.status?.reason === 'api_fetch_failed' || context.status?.reason === 'dom_not_ready') {
     return 'status-dot is-error';
@@ -23,6 +24,7 @@ function getStatusDotClass(context: ActiveTabContext): string {
 function getStatusLabel(context: ActiveTabContext): string {
   if (!context.supported) return '非 DeepWiki 页面';
   if (context.status?.reason === 'auto_capture_disabled') return '自动保存已关闭';
+  if (context.status?.reason === 'already_saved') return '本地已存在';
   if (context.status?.method === 'api') {
     return context.status.pending ? 'API 同步中…' : '已自动保存';
   }
@@ -36,10 +38,47 @@ function getStatusLabel(context: ActiveTabContext): string {
 function getStatusDesc(context: ActiveTabContext): string {
   if (!context.supported) return '当前页面不是 DeepWiki session。';
   if (context.status?.reason === 'auto_capture_disabled') return '开启自动保存后可自动记录历史。';
+  if (context.status?.reason === 'already_saved') return '本地已有同一 queryId 的记录，已跳过自动抓取。';
   if (context.status?.method === 'api' && !context.status.pending) return '已用 API 完整抓取并保存到本地。';
   if (context.status?.method === 'api' && context.status.pending) return '快速保存完成，API 正在继续同步。';
   if (context.status?.method === 'dom') return '已快速保存到本地，API 同步失败。';
   return '正在准备抓取…';
+}
+
+function formatDuration(duration?: number): string | null {
+  if (duration === undefined) {
+    return null;
+  }
+
+  return `${duration}ms`;
+}
+
+function getPerformanceSummary(performance?: CapturePerformance): string[] {
+  if (!performance) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  const total = formatDuration(performance.totalMs);
+
+  if (total) {
+    lines.push(`总耗时 ${total}`);
+  }
+
+  const breakdown = [
+    performance.localLookupMs !== undefined ? `查重 ${performance.localLookupMs}ms` : null,
+    performance.domParseMs !== undefined ? `DOM 解析 ${performance.domParseMs}ms` : null,
+    performance.domPersistMs !== undefined ? `DOM 保存 ${performance.domPersistMs}ms` : null,
+    performance.apiFetchMs !== undefined ? `API 请求 ${performance.apiFetchMs}ms` : null,
+    performance.apiTransformMs !== undefined ? `API 转换 ${performance.apiTransformMs}ms` : null,
+    performance.apiPersistMs !== undefined ? `API 保存 ${performance.apiPersistMs}ms` : null
+  ].filter(Boolean);
+
+  if (breakdown.length > 0) {
+    lines.push(breakdown.join(' · '));
+  }
+
+  return lines;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -121,12 +160,19 @@ export function PopupApp() {
           ? {
               ...current,
               status: {
-                ...(current.status ?? { supported: true, active: true, queryId: current.queryId, sourceUrl: current.url }),
+                ...(current.status ?? {
+                  supported: true,
+                  active: true,
+                  queryId: current.queryId,
+                  sourceUrl: current.url
+                }),
                 method: captureResult.method,
                 lastCapturedAt: captureResult.savedAt,
                 pending: captureResult.pending,
                 reason: undefined,
-                errorMessage: undefined
+                errorMessage: undefined,
+                performance: captureResult.performance,
+                existingConversationId: undefined
               }
             }
           : current
@@ -141,6 +187,8 @@ export function PopupApp() {
     if (!context?.tabId) return;
     await chrome.tabs.update(context.tabId, { active: true });
   }
+
+  const performanceLines = getPerformanceSummary(context?.status?.performance);
 
   return (
     <div className="popup">
@@ -165,6 +213,11 @@ export function PopupApp() {
                   {context.status?.lastCapturedAt ? (
                     <div className="popup__status-time">{formatRelativeTime(context.status.lastCapturedAt)}</div>
                   ) : null}
+                  {performanceLines.map((line) => (
+                    <div key={line} className="popup__status-time">
+                      {line}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

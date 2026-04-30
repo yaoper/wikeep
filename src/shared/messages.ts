@@ -1,6 +1,7 @@
 import type {
   ActiveTabContext,
   CapturePayload,
+  ExistingCaptureLookupResult,
   CaptureResult,
   CaptureStatus,
   ConversationDetail,
@@ -19,6 +20,7 @@ export type RuntimeCommand =
   | 'UPDATE_SETTINGS'
   | 'GET_ACTIVE_TAB_CONTEXT'
   | 'OPEN_SIDE_PANEL'
+  | 'LOOKUP_CAPTURE_BY_QUERY_ID'
   | 'GET_PAGE_STATUS'
   | 'TRIGGER_RECAPTURE';
 
@@ -47,6 +49,10 @@ export interface CaptureDomSnapshotPayload {
   snapshot: CapturePayload;
 }
 
+export interface LookupConversationByQueryIdPayload {
+  queryId: string;
+}
+
 export interface ListConversationsPayload {
   keyword?: string;
 }
@@ -69,4 +75,5 @@ export type GetSettingsResult = Settings;
 export type UpdateSettingsResult = Settings;
 export type GetActiveTabContextResult = ActiveTabContext;
 export type CaptureSessionResult = CaptureResult;
+export type LookupConversationByQueryIdResult = ExistingCaptureLookupResult;
 export type PageStatusResult = CaptureStatus | null;

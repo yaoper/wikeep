@@ -70,6 +70,16 @@ export interface CapturePayload {
   capturedAt: number;
 }
 
+export interface CapturePerformance {
+  totalMs?: number;
+  localLookupMs?: number;
+  domParseMs?: number;
+  domPersistMs?: number;
+  apiFetchMs?: number;
+  apiTransformMs?: number;
+  apiPersistMs?: number;
+}
+
 export interface ConversationListItem extends Conversation {
   matchedSnippet?: string;
 }
@@ -84,12 +94,20 @@ export interface CaptureResult {
   pending: boolean;
   method: CaptureMethod;
   savedAt: number;
+  performance?: CapturePerformance;
+}
+
+export interface ExistingCaptureLookupResult {
+  exists: boolean;
+  conversationId?: string;
+  updatedAt?: number;
 }
 
 export type CaptureStatusReason =
   | 'idle'
   | 'not_deepwiki_page'
   | 'auto_capture_disabled'
+  | 'already_saved'
   | 'api_fetch_failed'
   | 'dom_not_ready'
   | 'unsupported_dom_structure'
@@ -105,6 +123,8 @@ export interface CaptureStatus {
   pending?: boolean;
   reason?: CaptureStatusReason;
   errorMessage?: string;
+  performance?: CapturePerformance;
+  existingConversationId?: string;
 }
 
 export interface ActiveTabContext {
