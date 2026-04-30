@@ -181,15 +181,17 @@ Wikeep 是一个面向 DeepWiki 用户的 Chrome 浏览器插件，核心定位�
 **功能要求**：
 
 - 插件应监听 DeepWiki 页面内容变化，识别新增或变更的消息。
-- 插件应避免重复保存同一条消息。
-- 当页面刷新或重新打开时，插件应能继续保存新的会话内容。
-- 如果 DeepWiki 页面结构无法识别，插件应提示“当前页面暂不支持自动捕获”，而不是静默失败。
+- 插件应避免重复保存同一条消息：相同 `queryId` 已存在的会话直接命中本地记录，并在 UI 中提示「Session 已保存」，不再发起 API/DOM 抓取。
+- 当页面刷新或重新打开时，插件应能继续保存新的会话内容；当本地记录的 `schemaVersion` 低于当前版本时应触发隐式重抓。
+- 优先调用 DeepWiki 公开读取接口（`https://api.devin.ai/ada/query/{queryId}`）获取结构化数据，DOM 解析作为兜底。
+- Content Script 不可达时（例如页面 CSP 拦截），由 Background Service Worker 兜底完成抓取与 pending 轮询。
+- 如果 DeepWiki 页面结构无法识别，插件应提示「当前页面暂不支持自动捕获」，而不是静默失败。
 
 **验收标准**：
 
 - 用户在 DeepWiki 中完成一轮问答后，本地历史中能出现对应记录。
 - 多轮问答应按实际发生顺序保存。
-- 刷新页面后，已有会话不应重复生成大量重复消息。
+- 同一 `queryId` 重复打开时，应在 Side Panel 中看到「已保存」提示，且不重复抓取。
 - 页面结构不匹配时，应有可感知的异常状态或提示。
 
 ### 7.3 FR-003 本地持久化存储
@@ -345,16 +347,13 @@ Wikeep 是一个面向 DeepWiki 用户的 Chrome 浏览器插件，核心定位�
 
 ## 8. 信息架构与界面形态
 
-### 8.1 推荐界面形态
+### 8.1 界面形态
 
-首版建议采用 **Chrome Side Panel 侧边栏** 或 **插件 Popup 弹窗**。两者取舍如下：
+首版仅采用 **Chrome Side Panel 侧边栏** 作为唯一 UI 入口：
 
-| 形态 | 优点 | 风险 |
-| --- | --- | --- |
-| Side Panel | 空间更大，适合阅读历史、搜索和查看详情 | 需要关注不同 Chrome 版本支持情况 |
-| Popup | 实现简单，入口直观 | 空间较小，不适合长内容阅读 |
-
-建议优先考虑 Side Panel；如果开发成本或兼容性不足，可先使用 Popup 实现 MVP。
+- 空间更大，适合阅读历史、搜索和查看详情，可与 DeepWiki 页面并排使用。
+- 点击工具栏 Wikeep 图标后，Background 通过 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` 直接打开 Side Panel，不再经过 Popup。
+- 已移除 Popup 入口；如未来需要兼容不支持 Side Panel 的环境，再单独评估降级方案。
 
 ### 8.2 页面结构
 
@@ -370,12 +369,13 @@ Wikeep 是一个面向 DeepWiki 用户的 Chrome 浏览器插件，核心定位�
 ### 8.3 基础交互流程
 
 1. 用户安装 Wikeep。
-2. 用户访问 DeepWiki 页面。
-3. Wikeep 检测页面并自动捕获会话内容。
-4. 用户点击插件图标或打开侧边栏。
-5. 用户在历史列表中浏览或搜索会话。
-6. 用户点击某条会话查看详情。
-7. 用户可删除记录、清空数据，后续版本可导出或生成长图。
+2. 用户访问 DeepWiki 会话页（`https://deepwiki.com/search/{queryId}`）。
+3. Content Script 在 `document_end` 注入后立即上报「识别中」状态。
+4. 若该 `queryId` 已在本地存在，Side Panel 直接显示「Session 已保存」，不再重复抓取。
+5. 否则 Content Script 调用 DeepWiki API（DOM 兜底）完成抓取，并在 pending 时轮询直至完成。
+6. 当 Content Script 不可达时，Background 主动接管同样的 API 抓取与轮询。
+7. 用户点击插件图标即可打开 Side Panel，浏览或搜索历史会话；切换 Tab 时 Side Panel 状态会通过 `ACTIVE_TAB_CONTEXT_CHANGED` 即时刷新。
+8. 用户可点击会话查看详情、删除单条记录或清空全部数据；后续版本可导出 Markdown 或生成长图。
 
 ## 9. 数据模型建议
 
@@ -466,14 +466,14 @@ Wikeep 应遵循最小权限原则：
 
 ### 11.1 插件架构
 
-建议使用 Chrome Manifest V3，整体模块如下：
+实际采用 Chrome Manifest V3，整体模块如下：
 
 | 模块 | 职责 |
 | --- | --- |
-| Content Script | 在 DeepWiki 页面中识别和提取会话内容。 |
-| Background Service Worker | 负责消息转发、状态协调和插件生命周期事件。 |
-| Side Panel/Popup UI | 展示历史、搜索、详情和设置。 |
-| Storage Layer | 封装 IndexedDB 和 chrome.storage.local 读写逻辑。 |
+| Content Script | 在 `https://deepwiki.com/search/*` 页面（`document_end`）识别和提取会话内容，调用 API/DOM 完成抓取并上报状态。 |
+| Background Service Worker | 消息路由、Tab 上下文广播、Content Script 不可达时兜底抓取与 pending 轮询。 |
+| Side Panel UI | 唯一 UI 入口，展示历史、搜索、详情、设置；点击 action 图标直接打开。 |
+| Storage Layer | 封装 IndexedDB（schema v3）和 chrome.storage.local 读写逻辑。 |
 | Parser Layer | 针对 DeepWiki 页面结构进行内容解析和去重。 |
 | Export Layer | 后续负责 Markdown、长图等导出能力。 |
 
@@ -544,10 +544,10 @@ MVP 达成条件：
 
 | 风险/问题 | 影响 | 建议 |
 | --- | --- | --- |
-| DeepWiki 页面 DOM 结构不稳定 | 自动捕获容易失效 | 将解析逻辑封装为独立模块，并保留错误提示。 |
-| DeepWiki 是否有公开 API 未确认 | 影响数据获取方式 | 后续开发前调研 API、网络请求和页面结构。 |
+| DeepWiki 页面 DOM 结构不稳定 | 自动捕获容易失效 | API 优先、DOM 兜底；解析逻辑封装为独立模块，并保留错误提示。 |
+| DeepWiki 公开读取接口变化 | API 抓取失效 | 接口客户端独立封装，结构校验失败后降级 DOM 解析。 |
 | 长会话数据量较大 | 影响存储和搜索性能 | 使用 IndexedDB，详情页按需加载或分页渲染。 |
-| Chrome Side Panel 兼容性 | 影响界面形态 | 若兼容性不足，先用 Popup 实现 MVP。 |
+| Content Script 被页面策略拦截 | 自动保存无法启动 | Background 兜底抓取，并通过 `ACTIVE_TAB_CONTEXT_CHANGED` 推送状态到 Side Panel。 |
 | 用户隐私内容敏感 | 影响用户信任和上架审核 | 默认本地保存，明确隐私说明，不上传数据。 |
 
 ## 14. 后续迭代路线

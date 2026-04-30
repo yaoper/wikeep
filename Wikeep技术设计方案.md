@@ -29,11 +29,11 @@
 | 维度 | 技术选择 | 说明 |
 | --- | --- | --- |
 | 插件规范 | Chrome Manifest V3 | 当前 Chrome 插件推荐规范。 |
-| 前端技术栈 | React + TypeScript + Vite | 用于构建 Side Panel/Popup UI，兼顾类型安全和开发效率。 |
-| UI 入口 | Side Panel 优先，Popup 可降级 | Side Panel 更适合历史列表和长会话阅读。 |
-| 内容采集 | DeepWiki API 优先，Content Script + DOM 兜底 | 已确认公开 session 读取接口可用，DOM 捕获作为接口不可用时的降级方案。 |
-| 后台协调 | Background Service Worker | 负责生命周期事件、消息协调和插件入口控制。 |
-| 会话存储 | IndexedDB | 适合存储较大量结构化会话和消息。 |
+| 前端技术栈 | React + TypeScript + Vite | 用于构建 Side Panel UI，兼顾类型安全和开发效率。 |
+| UI 入口 | 仅 Side Panel | 当前实现已移除 Popup，点击 action 图标通过 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` 直接打开 Side Panel。 |
+| 内容采集 | DeepWiki API 优先，Content Script + DOM 兜底 | 已确认公开 session 读取接口可用，DOM 捕获作为接口不可用时的降级方案；Background 在 Content Script 不可达时还会做兜底抓取。 |
+| 后台协调 | Background Service Worker | 负责生命周期事件、消息协调、Tab 上下文广播、兜底抓取与 pending 轮询。 |
+| 会话存储 | IndexedDB（schema v3） | 适合存储较大量结构化会话和消息。 |
 | 设置存储 | chrome.storage.local | 适合轻量配置。 |
 | 搜索方式 | 本地简单全文匹配 | MVP 优先实现稳定可用，后续可升级索引。 |
 | 云端服务 | 不引入 | 首版坚持本地优先、无需登录。 |
@@ -57,20 +57,25 @@ Wikeep 的技术架构需要满足以下目标：
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                         Chrome UI                            │
-│                 Side Panel / Popup / Options                 │
+│                         Side Panel                           │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                │ chrome.runtime messaging
+                               │  ├─ GET_ACTIVE_TAB_CONTEXT
+                               │  ├─ ACTIVE_TAB_CONTEXT_CHANGED (background → panel)
+                               │  ├─ REPORT_PAGE_STATUS (content → background)
+                               │  └─ LIST_/GET_/DELETE_/CLEAR_ ...
                                │
 ┌──────────────────────────────▼──────────────────────────────┐
 │                Background Service Worker                     │
-│          lifecycle / routing / extension state               │
+│   lifecycle / routing / tab context / fallback capture       │
 └───────────────┬──────────────────────────────┬──────────────┘
                 │                              │
                 │                              │
 ┌───────────────▼──────────────┐   ┌───────────▼──────────────┐
 │        Content Script         │   │      Storage Layer        │
-│ DOM scan / mutation observer  │   │ IndexedDB / storage.local │
+│ document_end / API + DOM /    │   │ IndexedDB / storage.local │
+│ MutationObserver / status     │   │ (schema v3)               │
 └───────────────┬──────────────┘   └───────────┬──────────────┘
                 │                              │
 ┌───────────────▼──────────────┐   ┌───────────▼──────────────┐
@@ -84,70 +89,64 @@ Wikeep 的技术架构需要满足以下目标：
 | 模块 | 主要职责 | 运行环境 |
 | --- | --- | --- |
 | Manifest | 声明权限、入口、资源和匹配规则 | Chrome Extension |
-| Content Script | 注入 DeepWiki 页面，扫描和监听会话 DOM | Web Page Isolated World |
-| Parser Layer | 将 DOM 节点解析为标准消息对象 | Content Script |
-| Background Service Worker | 处理插件生命周期、消息转发、Side Panel 行为 | Extension Service Worker |
-| Storage Layer | 封装 IndexedDB 与 `chrome.storage.local` | Extension Context |
+| Content Script | 在 `https://deepwiki.com/search/*` 注入（document_end），扫描 DOM、调用 API、上报状态 | Web Page Isolated World |
+| Parser Layer | 将 API/DOM 数据解析为标准消息对象 | Content Script / Background |
+| Background Service Worker | 处理插件生命周期、消息路由、Tab 上下文广播、兜底抓取、pending 轮询 | Extension Service Worker |
+| Storage Layer | 封装 IndexedDB（schema v3）与 `chrome.storage.local` | Extension Context |
 | Search Layer | 基于本地数据执行关键词搜索 | Extension Context |
-| UI Layer | 展示历史列表、搜索、详情、设置 | Side Panel/Popup |
+| UI Layer | Side Panel 中展示历史列表、搜索、详情、设置 | Side Panel |
 | Export Layer | 后续 Markdown/长图导出 | Extension Context/UI |
 | Shared Layer | 类型、常量、工具函数、消息协议 | 所有模块 |
 
 ## 3. 推荐工程结构
 
-首版工程建议采用 Vite + React + TypeScript，并针对 Chrome 插件多入口进行配置。
+首版工程采用 Vite + React + TypeScript，并针对 Chrome 插件多入口构建（Side Panel HTML + Background Service Worker + 单文件 Content Script）。
 
 ```text
 wikeep/
 ├── Wikeep需求说明书.md
 ├── Wikeep技术设计方案.md
+├── README.md
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
+├── sidepanel.html
+├── scripts/
+│   └── build.mjs              # 双 Vite 构建入口（Side Panel/Background + Content Script）
 ├── public/
 │   ├── manifest.json
-│   └── icons/
+│   └── icons/                 # icon16/32/48/128.png
 ├── src/
 │   ├── background/
-│   │   └── serviceWorker.ts
+│   │   └── index.ts           # Service Worker：消息路由、Tab 上下文、兜底抓取、轮询
 │   ├── content/
-│   │   ├── index.ts
-│   │   ├── domScanner.ts
-│   │   └── mutationWatcher.ts
+│   │   └── index.ts           # 注入脚本：DOM 抓取 + API 抓取 + MutationObserver + 状态上报
 │   ├── api/
 │   │   ├── deepwikiApi.ts
-│   │   └── deepwikiTypes.ts
+│   │   └── types.ts
 │   ├── parser/
-│   │   ├── deepwikiParser.ts
-│   │   ├── normalizer.ts
-│   │   └── hash.ts
+│   │   └── ...                # 内容标准化、角色识别、hash 去重
 │   ├── storage/
 │   │   ├── db.ts
-│   │   ├── conversationRepository.ts
+│   │   ├── conversationRepository.ts   # SCHEMA_VERSION = 3
 │   │   ├── messageRepository.ts
 │   │   └── settingsRepository.ts
 │   ├── search/
 │   │   └── searchService.ts
 │   ├── ui/
-│   │   ├── main.tsx
-│   │   ├── App.tsx
-│   │   ├── pages/
-│   │   │   ├── HistoryPage.tsx
-│   │   │   ├── ConversationDetailPage.tsx
-│   │   │   └── SettingsPage.tsx
+│   │   ├── sidepanel/
+│   │   │   ├── main.tsx
+│   │   │   └── SidePanelApp.tsx
 │   │   ├── components/
 │   │   │   ├── ConversationList.tsx
-│   │   │   ├── ConversationCard.tsx
 │   │   │   ├── MessageBubble.tsx
 │   │   │   ├── SearchBox.tsx
 │   │   │   └── EmptyState.tsx
+│   │   ├── hooks/
+│   │   │   └── useDebouncedValue.ts
 │   │   └── styles/
-│   ├── export/
-│   │   ├── markdownExporter.ts
-│   │   └── imageExporter.ts
 │   └── shared/
 │       ├── constants.ts
-│       ├── errors.ts
 │       ├── messages.ts
 │       ├── types.ts
 │       └── utils.ts
@@ -157,37 +156,41 @@ wikeep/
     └── search/
 ```
 
-### 3.1 构建产物建议
+### 3.1 构建产物
 
 ```text
 dist/
 ├── manifest.json
-├── background.js
-├── content.js
-├── side-panel.html
-├── side-panel.js
-├── popup.html
-├── popup.js
+├── background.js          # Vite rollup output (entry: src/background/index.ts)
+├── content.js             # 第二次 Vite IIFE 构建产物（src/content/index.ts）
+├── sidepanel.html
+├── assets/
+│   ├── sidepanel.js
+│   └── ...
 └── icons/
+    ├── icon16.png
+    ├── icon32.png
+    ├── icon48.png
+    └── icon128.png
 ```
 
-Vite 需要配置多入口构建：
+构建流程（`scripts/build.mjs`）：
 
-- Side Panel HTML 入口。
-- Popup HTML 入口，可选。
-- Background Service Worker 入口。
-- Content Script 入口。
+1. 第一次 Vite 构建：以 `sidepanel.html` + `src/background/index.ts` 作为入口，复制 `public/` 到 `dist/`。
+2. 第二次 Vite 构建：以 IIFE 单文件方式打包 `src/content/index.ts` 为 `dist/content.js`，避免 Content Script 使用动态 import。
+
+不再保留 Popup 入口。
 
 ## 4. Manifest V3 设计
 
-### 4.1 Manifest 示例
+### 4.1 Manifest 实际配置
 
-以下为建议结构，DeepWiki 域名已确认为 `https://deepwiki.com`，公开 session 读取接口域名已确认为 `https://api.devin.ai`。
+DeepWiki 域名为 `https://deepwiki.com`，公开 session 读取接口域名为 `https://api.devin.ai`。当前 `public/manifest.json` 实际配置如下：
 
 ```json
 {
   "manifest_version": 3,
-  "name": "Wikeep",
+  "name": "Wikeep - Save and search DeepWiki",
   "description": "Save and search DeepWiki conversations locally.",
   "version": "0.1.0",
   "permissions": ["storage", "sidePanel", "activeTab"],
@@ -199,27 +202,40 @@ Vite 需要配置多入口构建：
     "service_worker": "background.js",
     "type": "module"
   },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "content_scripts": [
     {
-      "matches": ["https://deepwiki.com/*"],
+      "matches": ["https://deepwiki.com/search/*"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_end"
     }
   ],
   "side_panel": {
-    "default_path": "side-panel.html"
+    "default_path": "sidepanel.html"
   },
   "action": {
     "default_title": "Wikeep",
-    "default_popup": "popup.html"
-  },
-  "icons": {
-    "16": "icons/icon-16.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
   }
 }
 ```
+
+要点：
+
+- Content Script 仅匹配 `/search/*` 路径，不再匹配整个 `deepwiki.com`，缩小注入面。
+- `run_at` 由原方案的 `document_idle` 调整为 `document_end`，使页面识别和状态上报更早。
+- 不配置 `default_popup`；Background 启动时调用 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`，点击图标直接打开 Side Panel。
+- Action 图标只配置 16/32/48 三个尺寸（Chrome 工具栏需要），128 仅用于 `icons` 全局展示。
+- 当前未维护 action badge，Background 仅在 Tab 切换时清理残留 badge。
 
 ### 4.2 权限说明
 
@@ -345,12 +361,14 @@ MVP 建议：
 
 ### 6.1 数据库定义
 
-| 项 | 建议值 |
+| 项 | 实际值 |
 | --- | --- |
 | 数据库名 | `wikeep` |
-| 初始版本 | `1` |
+| 当前 schema 版本 | `3`（参见 `src/storage/conversationRepository.ts` 中的 `SCHEMA_VERSION`） |
 | 主要对象仓库 | `conversations`、`messages` |
-| 可选对象仓库 | `captureEvents`、`searchIndex` |
+| 可选对象仓库 | `captureEvents`、`searchIndex`（暂未启用） |
+
+> 当 `lookupConversationBySourceSessionId` 命中的记录 `schemaVersion` 低于当前版本时会返回 `{ exists: false }`，触发重新抓取以完成隐式迁移。
 
 ### 6.2 conversations 对象仓库
 
@@ -423,46 +441,47 @@ openDB('wikeep', 1, {
 
 ### 7.1 捕获流程
 
-首版捕获策略调整为 **API 优先、DOM 兜底**。原因是已确认 DeepWiki session 页面会调用可复用的公开读取接口，接口返回的数据结构比页面 DOM 更稳定，能直接区分用户问题、AI 回复、引用、文件内容和会话状态。
+首版捕获策略为 **API 优先、DOM 兜底**，并在 Content Script 不可达时由 Background 兜底完成抓取。
 
 ```text
-用户打开 DeepWiki 页面
+用户打开 https://deepwiki.com/search/{queryId}
         │
         ▼
-Content Script document_idle 注入
+Content Script 在 document_end 注入
         │
         ▼
-读取 Settings，判断 autoCaptureEnabled
+立即上报 bootstrap 状态：active=true, pending=true, reason='idle'
         │
         ▼
-识别页面是否为支持的 DeepWiki 会话页
+读取 Settings，若 autoCaptureEnabled=false 则上报 reason='auto_capture_disabled' 并退出
         │
         ▼
-从 URL 提取 queryId
+LOOKUP_CAPTURE_BY_QUERY_ID：本地命中且 schemaVersion 满足 → 上报 already_saved，结束
         │
         ▼
-调用 DeepWiki API 获取 session 数据
+captureViaDom() → captureViaApi()
+        │
+        ├─ API 成功且非 pending → 写入 IndexedDB，上报已保存
+        ├─ API 成功但 pending  → 每 PENDING_POLL_MS=3000ms 轮询，最多 MAX_POLL_ATTEMPTS=60 次
+        └─ API 失败            → 上报 reason='api_fetch_failed'
+
+并行：MutationObserver 监听 DOM 变化（CAPTURE_DEBOUNCE_MS=500ms）触发重抓
+```
+
+Background 兜底通道：
+
+```text
+活动 Tab 切换 / 更新 / 窗口聚焦
         │
         ▼
-API 成功：转换为 Conversation/Message
+Background 判断 URL 是否匹配 /search/{queryId}
         │
-        ├───────────────┐
-        │               │
-        ▼               ▼
-API 失败/接口不可用   API 数据正常
-        │               │
-        ▼               ▼
-DOM Scanner 兜底       生成 contentHash，执行去重
-        │               │
-        └───────┬───────┘
-                ▼
-发送 CAPTURE_SNAPSHOT 消息
-                │
-                ▼
-Storage Layer upsert conversation/messages
-                │
-                ▼
-MutationObserver 持续监听页面变化并触发重新拉取或 DOM 兜底扫描
+        ├─ 是 → GET_PAGE_STATUS 查询 Content Script
+        │       └─ 若 Content Script 不可达 → runBackgroundFallbackCapture()
+        │             └─ 在 Background 内直接调用 API、写库、轮询 pending
+        └─ 否 → 清理 Tab 状态缓存
+
+每次 Tab 上下文变化 → ACTIVE_TAB_CONTEXT_CHANGED 广播给 Side Panel
 ```
 
 ### 7.2 DeepWiki URL 与接口调研结论
@@ -660,39 +679,60 @@ export interface DomScanner {
 
 ### 8.1 消息命令定义
 
+实际实现的 `RuntimeCommand`（参见 `src/shared/messages.ts`）：
+
 ```ts
 export type RuntimeCommand =
-  | 'CAPTURE_SNAPSHOT'
-  | 'GET_CAPTURE_STATUS'
+  | 'CAPTURE_DEEPWIKI_SESSION'
+  | 'CAPTURE_DOM_SNAPSHOT'
   | 'LIST_CONVERSATIONS'
   | 'GET_CONVERSATION_DETAIL'
-  | 'SEARCH_CONVERSATIONS'
   | 'DELETE_CONVERSATION'
   | 'CLEAR_ALL_DATA'
   | 'GET_SETTINGS'
-  | 'UPDATE_SETTINGS';
+  | 'UPDATE_SETTINGS'
+  | 'GET_ACTIVE_TAB_CONTEXT'
+  | 'OPEN_SIDE_PANEL'
+  | 'LOOKUP_CAPTURE_BY_QUERY_ID'
+  | 'REPORT_PAGE_STATUS'
+  | 'ACTIVE_TAB_CONTEXT_CHANGED'
+  | 'GET_PAGE_STATUS'
+  | 'TRIGGER_RECAPTURE';
 ```
 
+主要语义：
+
+| 命令 | 方向 | 说明 |
+| --- | --- | --- |
+| `CAPTURE_DEEPWIKI_SESSION` | Content/Side Panel → Background | 通过 `queryId` 触发 API 抓取并写库 |
+| `CAPTURE_DOM_SNAPSHOT` | Content → Background | DOM 兜底快照写入 |
+| `LOOKUP_CAPTURE_BY_QUERY_ID` | Content/Side Panel → Background | 查重 + schema 版本校验 |
+| `REPORT_PAGE_STATUS` | Content → Background | 上报 `CaptureStatus`，Background 据此更新 Tab 状态缓存 |
+| `ACTIVE_TAB_CONTEXT_CHANGED` | Background → Side Panel | 主动通知活动 Tab 上下文变化，驱动 Side Panel 立即刷新 |
+| `GET_ACTIVE_TAB_CONTEXT` | Side Panel → Background | 主动拉取当前活动 Tab 状态（含 Content Script 状态或 Background 缓存） |
+| `GET_PAGE_STATUS` | Background → Content | 通过 `chrome.tabs.sendMessage` 询问目标 Tab 当前状态 |
+| `TRIGGER_RECAPTURE` | Side Panel → Content/Background | 用户手动重抓 |
+| `OPEN_SIDE_PANEL` | Side Panel/其它 → Background | 主动打开 Side Panel |
+
 ### 8.2 消息结构
+
+实际实现采用更简洁的结构，不再使用 `requestId`（依赖 `chrome.runtime.sendMessage` 的回调一一对应）：
 
 ```ts
 export interface RuntimeRequest<TPayload = unknown> {
   command: RuntimeCommand;
   payload?: TPayload;
-  requestId: string;
 }
 
 export interface RuntimeResponse<TData = unknown> {
-  requestId: string;
   ok: boolean;
   data?: TData;
-  error?: WikeepErrorPayload;
+  error?: RuntimeErrorPayload;
 }
 
-export interface WikeepErrorPayload {
+export interface RuntimeErrorPayload {
   code: string;
   message: string;
-  recoverable: boolean;
 }
 ```
 
@@ -886,27 +926,21 @@ Snippet 规则：
 
 ### 11.1 UI 入口
 
-首版主入口为 Side Panel：
+实际实现仅保留 Side Panel 作为唯一 UI 入口：
 
-- 适合展示历史列表。
-- 适合阅读长会话。
-- 可以与 DeepWiki 页面并排使用。
+- 主组件位于 `src/ui/sidepanel/SidePanelApp.tsx`，所有视图（列表、详情摘要、设置、状态条、Toast）均在此组件内通过 React 状态切换。
+- Background 在启动时调用 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`，因此用户点击工具栏图标会直接打开 Side Panel，不再经过 Popup。
+- Popup 入口已移除，原 `src/ui/popup/` 目录与 `popup.html` 不再保留。
 
-Popup 作为可选降级入口：
+### 11.2 视图划分
 
-- 显示当前捕获状态。
-- 提供“打开 Wikeep 侧边栏”按钮。
-- 在不支持 Side Panel 的环境中展示简化历史列表。
-
-### 11.2 页面划分
-
-| 页面 | 路由建议 | 功能 |
+| 视图 | 形态 | 功能 |
 | --- | --- | --- |
-| 历史页 | `/` | 历史列表、搜索框、捕获状态。 |
-| 详情页 | `/conversation/:id` | 完整消息、来源、时间、删除入口。 |
-| 设置页 | `/settings` | 自动保存开关、隐私说明、清空数据。 |
-
-插件 UI 可使用轻量前端路由，也可通过 React 本地状态管理当前视图。MVP 中不需要引入复杂路由框架。
+| 状态条 | 顶部固定区 | 展示当前 Tab 抓取状态（识别中 / 保存中 / 已保存 / 不支持等），订阅 `ACTIVE_TAB_CONTEXT_CHANGED` 即时刷新 |
+| 列表区 | 主体 | 历史会话列表，支持搜索、悬停操作（复制 URL、删除） |
+| 详情视图 | 列表展开 | 选中会话后展示完整消息、来源、时间 |
+| 设置面板 | 工具栏更多菜单进入 | 自动保存开关、清空数据、隐私说明 |
+| Toast | 浮层 | 自动 2.8s 消失，反馈复制 / 保存 / 删除等操作 |
 
 ### 11.3 组件设计
 
@@ -956,14 +990,15 @@ useCaptureStatus()
 
 ### 12.1 职责
 
-Background Service Worker 负责：
+Background Service Worker 实际承担以下职责：
 
-- 插件安装和更新事件。
-- Side Panel 打开行为。
-- 统一处理 UI 和 Content Script 的 runtime message。
-- 根据 `queryId` 调用 DeepWiki API 并转换为内部 snapshot。
-- 调用 Storage Layer。
-- 返回标准化响应。
+- 插件安装、更新事件。
+- 启动时设置 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`，让 action 点击直接打开 Side Panel。
+- 统一处理 UI 与 Content Script 的 runtime message。
+- 根据 `queryId` 调用 DeepWiki API、转换 snapshot 并写入 Storage。
+- 维护 `tabStatusCache`，在 `tabs.onActivated` / `tabs.onUpdated` / `windows.onFocusChanged` 时广播 `ACTIVE_TAB_CONTEXT_CHANGED`。
+- 当 Tab 是 DeepWiki 会话页但 Content Script 不可达时，运行 `runBackgroundFallbackCapture` 兜底抓取，并以 `PENDING_POLL_MS=3000ms`（最多 `MAX_POLL_ATTEMPTS=60` 次）轮询 pending 状态。
+- 在 Tab 切换时清理残留 action badge（不再维护 badge 颜色或文案）。
 
 ### 12.2 消息路由
 
@@ -986,57 +1021,54 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 ### 12.3 Side Panel 行为
 
-可在 action 点击时打开 Side Panel：
+实际实现仅保留 Side Panel，不再配置 Popup：
 
 ```ts
-chrome.action.onClicked.addListener(async (tab) => {
-  if (tab.id) {
-    await chrome.sidePanel.open({ tabId: tab.id });
-  }
+// src/background/index.ts
+chrome.runtime.onInstalled.addListener(async () => {
+  await chrome.sidePanel.setPanelBehavior({
+    openPanelOnActionClick: true
+  });
 });
 ```
 
-如果同时配置 `default_popup`，需要确认 Chrome 对 action 点击行为的限制。首版可选择：
-
-- 方案 A：只使用 Side Panel，不配置 Popup。
-- 方案 B：配置 Popup，并在 Popup 中提供打开 Side Panel 的按钮。
-
-本文档建议方案 B，兼顾入口提示和兼容性。
+由于 `openPanelOnActionClick=true`，无需手动监听 `chrome.action.onClicked`；浏览器会在用户点击 action 图标时直接打开 Side Panel。同时不再配置 `default_popup`，与方案 A 一致。
 
 ## 13. Content Script 设计
 
 ### 13.1 初始化流程
 
+实际实现位于 `src/content/index.ts`，关键改动：
+
+- `run_at` 为 `document_end`，比原方案的 `document_idle` 更早。
+- 注入后**立即**上报 bootstrap 状态 `{ active: true, pending: true, reason: 'idle' }`，让 Side Panel 在页面加载早期就能看到“识别中”反馈。
+- 通过 `LOOKUP_CAPTURE_BY_QUERY_ID` 做去重短路，命中已保存记录时不再发起 API/DOM 抓取。
+- pending 阶段使用 `PENDING_POLL_MS=3000ms` 节奏轮询，每次轮询都通过 `REPORT_PAGE_STATUS` 同步状态。
+
 ```ts
 async function initContentScript() {
-  const settings = await getSettingsFromRuntime();
+  reportStatus({ active: true, pending: true, reason: 'idle' });
 
-  if (!settings.autoCaptureEnabled) {
-    reportStatus('auto_capture_disabled');
-    return;
-  }
-
-  const queryId = extractQueryId(location.href);
+  const queryId = extractQueryIdFromUrl(location.href);
   if (!queryId) {
-    reportStatus('not_deepwiki_page');
+    reportStatus({ supported: false, active: false, reason: 'not_deepwiki_page' });
     return;
   }
 
-  const apiResult = await captureByQueryId(queryId);
-  if (apiResult.ok) {
-    reportStatus('capturing');
-    watchConversationChanges(document.body, () => captureByQueryId(queryId));
+  const settings = await getSettingsFromRuntime();
+  if (!settings.autoCaptureEnabled) {
+    reportStatus({ active: false, reason: 'auto_capture_disabled' });
     return;
   }
 
-  const root = detectConversationRoot(document);
-  if (!root) {
-    reportStatus('api_fetch_failed');
+  const existing = await lookupExistingCapture(queryId);
+  if (existing.exists) {
+    reportStatus({ active: true, pending: false, reason: 'already_saved', existingConversationId: existing.conversationId });
     return;
   }
 
-  captureCurrentSnapshot(root);
-  watchConversationChanges(root);
+  setupObserver(queryId);
+  await runCapture(queryId);   // captureViaDom() → captureViaApi() → 必要时轮询
 }
 ```
 
@@ -1051,21 +1083,33 @@ Chrome Content Script 默认运行在 isolated world：
 
 ### 13.3 捕获状态上报
 
-Content Script 应向 Background 上报捕获状态，用于 UI 展示：
+Content Script 每次内部 `setStatus()` 都会通过 `REPORT_PAGE_STATUS` 上报最新 `CaptureStatus`，Background 据此更新 `tabStatusCache`，并在状态对应活动 Tab 时通过 `ACTIVE_TAB_CONTEXT_CHANGED` 主动推送给 Side Panel。
 
 ```ts
-export interface CaptureStatusChangedPayload {
-  tabId?: number;
-  status: CaptureStatus;
+export interface CaptureStatus {
+  supported: boolean;
+  active: boolean;
+  queryId?: string;
+  sourceUrl?: string;
+  method?: 'api' | 'dom';
+  lastCapturedAt?: number;
+  pending?: boolean;
+  reason?: CaptureStatusReason;
+  errorMessage?: string;
+  performance?: CapturePerformance;
+  existingConversationId?: string;
+  repoNames?: string[];
 }
 ```
 
-UI 可展示：
+UI 据此呈现：
 
-- 当前页面正在自动保存。
-- 当前页面暂不支持捕获。
-- 自动保存已关闭。
-- 保存失败。
+- 等待识别 / 准备中（`reason='idle'` 且 `pending=true`）。
+- 自动保存中（`active=true` 且 `pending=true`，非 idle）。
+- 已保存（`reason='already_saved'` 或抓取成功）。
+- 不支持当前页面（`reason='not_deepwiki_page'`）。
+- 自动保存已关闭（`reason='auto_capture_disabled'`）。
+- 抓取失败（`reason='api_fetch_failed' | 'dom_not_ready' | 'unsupported_dom_structure' | 'storage_error'`）。
 
 ## 14. Parser Layer 设计
 
@@ -1106,18 +1150,21 @@ export interface DeepWikiParser {
 
 ### 15.1 错误类型
 
+实际实现以 `CaptureStatusReason` 表示用户可感知的状态/错误（参见 `src/shared/types.ts`）：
+
 ```ts
-export type WikeepErrorCode =
-  | 'UNSUPPORTED_PAGE'
-  | 'AUTO_CAPTURE_DISABLED'
-  | 'PARSE_FAILED'
-  | 'STORAGE_OPEN_FAILED'
-  | 'STORAGE_WRITE_FAILED'
-  | 'STORAGE_READ_FAILED'
-  | 'MIGRATION_FAILED'
-  | 'PERMISSION_DENIED'
-  | 'UNKNOWN_ERROR';
+export type CaptureStatusReason =
+  | 'idle'                        // 注入后/识别中（短暂的 pending）
+  | 'not_deepwiki_page'           // URL 不是 deepwiki.com/search/{queryId}
+  | 'auto_capture_disabled'       // 自动保存被关闭
+  | 'already_saved'               // queryId 已在本地保存（命中去重）
+  | 'api_fetch_failed'            // 调用 DeepWiki/Devin API 失败
+  | 'dom_not_ready'               // DOM 结构尚未就绪
+  | 'unsupported_dom_structure'   // 页面结构无法识别
+  | 'storage_error';              // IndexedDB / chrome.storage 写入失败
 ```
+
+Background 在 `RuntimeResponse` 中以 `RuntimeErrorPayload`（`{ code, message }`）返回错误，UI 据此渲染状态条文案与 toast。
 
 ### 15.2 用户可见提示
 
@@ -1338,9 +1385,9 @@ export interface MarkdownExporter {
 ### 20.1 阶段一：工程初始化
 
 - 初始化 Vite + React + TypeScript 工程。
-- 配置 Manifest V3 多入口构建。
-- 配置 Side Panel 和 Popup 页面。
+- 配置 Manifest V3 多入口构建（Side Panel HTML + Background + 单独 IIFE 打包的 Content Script）。
 - 配置基础图标和插件元信息。
+- 不再保留 Popup 入口；在 Background 中启用 `openPanelOnActionClick`。
 
 ### 20.2 阶段二：基础存储
 
@@ -1386,11 +1433,11 @@ export interface MarkdownExporter {
 | --- | --- | --- |
 | DeepWiki API 结构变化 | API 优先捕获失效 | API Client 独立封装，结构校验失败后降级 DOM 解析。 |
 | DeepWiki DOM 结构变化 | DOM 兜底捕获失效 | Parser 独立封装，UI 提示不支持，后续快速适配。 |
-| AI 回复流式输出 | 重复写入或保存半截内容 | debounce + order 更新 + hash 去重。 |
+| AI 回复流式输出 | 重复写入或保存半截内容 | debounce + order 更新 + hash 去重，pending 阶段轮询。 |
 | 本地数据过多 | 搜索和渲染变慢 | IndexedDB 索引、分页、后续 searchIndex。 |
-| Side Panel 兼容性不足 | UI 无法打开 | Popup 降级入口。 |
+| Content Script 不可达 | Side Panel 无法看到状态 | Background 兜底 API 抓取 + pending 轮询，并通过 `ACTIVE_TAB_CONTEXT_CHANGED` 推送。 |
 | 用户误删数据 | 数据不可恢复 | 删除和清空前二次确认，后续支持备份。 |
-| 权限申请过多 | 上架审核和用户信任风险 | 严格最小权限，不使用 `<all_urls>`。 |
+| 权限申请过多 | 上架审核和用户信任风险 | 严格最小权限，Content Script 仅匹配 `/search/*`。 |
 | 会话内容敏感 | 隐私风险 | 本地保存、不上传、不接入第三方分析。 |
 
 ## 22. 调研结论与剩余事项
@@ -1416,8 +1463,8 @@ export interface MarkdownExporter {
 
 ## 23. 总结
 
-Wikeep 首版技术方案应围绕 Chrome Manifest V3、React + TypeScript + Vite、DeepWiki API 优先捕获、Content Script DOM 兜底、IndexedDB 本地持久化和 Side Panel UI 展开。
+Wikeep 首版技术方案围绕 Chrome Manifest V3、React + TypeScript + Vite、DeepWiki API 优先捕获、Content Script DOM 兜底、Background 兜底抓取、IndexedDB（schema v3）本地持久化与 Side Panel 唯一 UI 入口展开。
 
-核心实现路径是：在 DeepWiki `/search/{queryId}` 页面中提取 queryId，由 Background Service Worker 调用 `GET https://api.devin.ai/ada/query/{queryId}` 获取结构化 session 数据，转换为 Wikeep Conversation/Message 后写入 IndexedDB；当 API 不可用时，再通过 Content Script 使用 DOM 选择器进行兜底解析。React Side Panel 提供历史列表、搜索、详情和设置能力。整个方案坚持本地优先、最小权限和隐私保护原则，不引入后端、账号系统或云同步。
+核心实现路径：在 DeepWiki `/search/{queryId}` 页面中提取 `queryId`，由 Content Script 在 `document_end` 调用 `GET https://api.devin.ai/ada/query/{queryId}` 获取结构化 session 数据，转换为 Wikeep Conversation/Message 后写入 IndexedDB；当 API 不可用时通过 DOM 选择器兜底；当 Content Script 本身不可达时由 Background 直接调用 API 兜底，并通过 `ACTIVE_TAB_CONTEXT_CHANGED` 主动通知 Side Panel 刷新状态。React Side Panel 提供历史列表、搜索、详情和设置能力，点击 action 图标即可打开。整套方案坚持本地优先、最小权限和隐私保护原则，不引入后端、账号系统或云同步。
 
 该架构既能满足 MVP 的保存和找回目标，也为后续 Markdown 导出、长图生成、标签收藏和本地备份提供了清晰扩展边界。
