@@ -89,16 +89,13 @@ function getStatusSubtitle(context: ActiveTabContext | null): string {
   if (isStatusPending(context)) return '正在获取页面 Session 信息';
 
   if (
-    context.status?.lastCapturedAt &&
     (
       context.status?.method === 'api' ||
       context.status?.method === 'dom' ||
       context.status?.reason === 'already_saved'
     )
   ) {
-    const primaryRepo = context.status.repoNames?.find(Boolean);
-    const relativeTime = formatRelativeTime(context.status.lastCapturedAt);
-    return primaryRepo ? `${primaryRepo} · ${relativeTime}` : relativeTime;
+    return '';
   }
 
   return '打开 DeepWiki Session 页面后自动识别';
@@ -428,6 +425,7 @@ export function SidePanelApp() {
 
   const statusTone = getStatusTone(activeContext);
   const statusActionLabel = getStatusActionLabel(activeContext);
+  const statusSubtitle = contextLoading ? '请稍候…' : getStatusSubtitle(activeContext);
   const showRecentLabel = !keyword.trim() && conversations.length > 0;
 
   return (
@@ -528,9 +526,11 @@ export function SidePanelApp() {
             >
               {contextLoading ? '正在读取当前页面状态' : getStatusTitle(activeContext)}
             </div>
-            <div className="status-bar__subtitle">
-              {contextLoading ? '请稍候…' : getStatusSubtitle(activeContext)}
-            </div>
+            {statusSubtitle ? (
+              <div className="status-bar__subtitle">
+                {statusSubtitle}
+              </div>
+            ) : null}
           </div>
           {statusActionLabel ? (
             <button type="button" className="status-bar__action" onClick={() => void handleManualSave()}>
