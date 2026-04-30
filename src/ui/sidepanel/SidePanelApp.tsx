@@ -140,42 +140,47 @@ export function SidePanelApp() {
           </button>
         ) : (
           <>
-            <span className="panel__logo">Wikeep</span>
-            <button
-              type="button"
-              className="btn-icon"
-              title="刷新"
-              onClick={() => void loadConversations(debouncedKeyword)}
-            >
-              ↺
-            </button>
-            <div className="dropdown" ref={menuRef}>
+            <div className="brand">
+              <span className="brand__mark">W</span>
+              <span className="brand__text panel__logo">Wikeep</span>
+            </div>
+            <div className="panel__tools">
               <button
                 type="button"
                 className="btn-icon"
-                title="更多"
-                onClick={() => setMenuOpen((o) => !o)}
+                title="刷新"
+                onClick={() => void loadConversations(debouncedKeyword)}
               >
-                ⋮
+                ↺
               </button>
-              {menuOpen ? (
-                <div className="dropdown__menu">
-                  <button
-                    type="button"
-                    className="dropdown__item"
-                    onClick={() => {
-                      setView('settings');
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: 6, flexShrink: 0}}>
-                      <circle cx="8" cy="8" r="2.5" />
-                      <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
-                    </svg>
-                    设置
-                  </button>
-                </div>
-              ) : null}
+              <div className="dropdown" ref={menuRef}>
+                <button
+                  type="button"
+                  className="btn-icon"
+                  title="更多"
+                  onClick={() => setMenuOpen((o) => !o)}
+                >
+                  ⋮
+                </button>
+                {menuOpen ? (
+                  <div className="dropdown__menu">
+                    <button
+                      type="button"
+                      className="dropdown__item"
+                      onClick={() => {
+                        setView('settings');
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: 6, flexShrink: 0}}>
+                        <circle cx="8" cy="8" r="2.5" />
+                        <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
+                      </svg>
+                      设置
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </>
         )}
@@ -241,11 +246,14 @@ export function SidePanelApp() {
                 }
               />
             ) : (
-              <ConversationList
-                items={conversations}
-                onDelete={(id) => void handleDeleteConversation(id)}
-                onCopyUrl={(url) => void handleCopySourceUrl(url)}
-              />
+              <>
+                {!keyword.trim() ? <div className="panel__section-label">最近</div> : null}
+                <ConversationList
+                  items={conversations}
+                  onDelete={(id) => void handleDeleteConversation(id)}
+                  onCopyUrl={(url) => void handleCopySourceUrl(url)}
+                />
+              </>
             )}
           </>
         )}

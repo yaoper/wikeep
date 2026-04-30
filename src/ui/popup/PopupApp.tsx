@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ActiveTabContext, CapturePerformance, CaptureResult } from '../../shared/types';
+import type { ActiveTabContext, CaptureResult } from '../../shared/types';
 import type {
   CaptureDeepWikiSessionPayload,
   RuntimeRequest,
@@ -25,6 +25,7 @@ function getStatusLabel(context: ActiveTabContext): string {
   if (!context.supported) return '非 DeepWiki 页面';
   if (context.status?.reason === 'auto_capture_disabled') return '自动保存已关闭';
   if (context.status?.reason === 'already_saved') return '本地已存在';
+  if (context.status?.active && !context.status?.method && !context.status?.reason) return '初始化抓取中…';
   if (context.status?.method === 'api') {
     return context.status.pending ? 'API 同步中…' : '已自动保存';
   }
@@ -35,50 +36,12 @@ function getStatusLabel(context: ActiveTabContext): string {
   return '等待捕获';
 }
 
-function getStatusDesc(context: ActiveTabContext): string {
-  if (!context.supported) return '当前页面不是 DeepWiki session。';
-  if (context.status?.reason === 'auto_capture_disabled') return '开启自动保存后可自动记录历史。';
-  if (context.status?.reason === 'already_saved') return '本地已有同一 queryId 的记录，已跳过自动抓取。';
-  if (context.status?.method === 'api' && !context.status.pending) return '已用 API 完整抓取并保存到本地。';
-  if (context.status?.method === 'api' && context.status.pending) return '快速保存完成，API 正在继续同步。';
-  if (context.status?.method === 'dom') return '已快速保存到本地，API 同步失败。';
-  return '正在准备抓取…';
-}
-
 function formatDuration(duration?: number): string | null {
   if (duration === undefined) {
     return null;
   }
 
   return `${duration}ms`;
-}
-
-function getPerformanceSummary(performance?: CapturePerformance): string[] {
-  if (!performance) {
-    return [];
-  }
-
-  const lines: string[] = [];
-  const total = formatDuration(performance.totalMs);
-
-  if (total) {
-    lines.push(`总耗时 ${total}`);
-  }
-
-  const breakdown = [
-    performance.localLookupMs !== undefined ? `查重 ${performance.localLookupMs}ms` : null,
-    performance.domParseMs !== undefined ? `DOM 解析 ${performance.domParseMs}ms` : null,
-    performance.domPersistMs !== undefined ? `DOM 保存 ${performance.domPersistMs}ms` : null,
-    performance.apiFetchMs !== undefined ? `API 请求 ${performance.apiFetchMs}ms` : null,
-    performance.apiTransformMs !== undefined ? `API 转换 ${performance.apiTransformMs}ms` : null,
-    performance.apiPersistMs !== undefined ? `API 保存 ${performance.apiPersistMs}ms` : null
-  ].filter(Boolean);
-
-  if (breakdown.length > 0) {
-    lines.push(breakdown.join(' · '));
-  }
-
-  return lines;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -91,28 +54,67 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString('zh-CN');
 }
 
+function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
+  if (!context?.supported) {
+    return false;
+  }
+
+  const status = context.status;
+
+  if (!status) {
+    return true;
+  }
+
+  if (status.pending) {
+    return true;
+  }
+
+  if (status.active && !status.method) {
+    return true;
+  }
+
+  return false;
+}
+
 export function PopupApp() {
   const [context, setContext] = useState<ActiveTabContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
-  async function loadContext() {
-    setLoading(true);
-    setErrorMessage(null);
+  async function loadContext(options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setLoading(true);
+      setErrorMessage(null);
+    }
+
     try {
       const nextContext = await sendRuntimeMessage<ActiveTabContext>('GET_ACTIVE_TAB_CONTEXT');
       setContext(nextContext);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadContext();
   }, []);
+
+  useEffect(() => {
+    if (!shouldAutoRefreshContext(context)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadContext({ silent: true });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [context]);
 
   async function handleOpenSidePanel() {
     if (!context?.tabId) {
@@ -183,17 +185,22 @@ export function PopupApp() {
     }
   }
 
-  async function handleFocusTab() {
-    if (!context?.tabId) return;
-    await chrome.tabs.update(context.tabId, { active: true });
-  }
-
-  const performanceLines = getPerformanceSummary(context?.status?.performance);
+  const statusMeta = [
+    context?.status?.lastCapturedAt ? formatRelativeTime(context.status.lastCapturedAt) : null,
+    formatDuration(context?.status?.performance?.totalMs)
+      ? `耗时 ${formatDuration(context?.status?.performance?.totalMs)}`
+      : null
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className="popup">
       <div className="popup__header">
-        <span className="popup__logo">Wikeep</span>
+        <div className="brand">
+          <span className="brand__mark">W</span>
+          <span className="brand__text popup__logo">Wikeep</span>
+        </div>
       </div>
 
       <div className="popup__body">
@@ -207,41 +214,29 @@ export function PopupApp() {
             <div className="popup__card">
               <div className="popup__status">
                 <span className={getStatusDotClass(context)} />
-                <div>
+                <div className="popup__status-content">
                   <div className="popup__status-label">{getStatusLabel(context)}</div>
-                  <div className="popup__status-desc">{getStatusDesc(context)}</div>
-                  {context.status?.lastCapturedAt ? (
-                    <div className="popup__status-time">{formatRelativeTime(context.status.lastCapturedAt)}</div>
-                  ) : null}
-                  {performanceLines.map((line) => (
-                    <div key={line} className="popup__status-time">
-                      {line}
-                    </div>
-                  ))}
+                  {statusMeta ? <div className="popup__status-meta">{statusMeta}</div> : null}
                 </div>
               </div>
             </div>
 
             <div className="popup__actions">
-              <button type="button" className="btn btn--primary btn--full" onClick={() => void handleOpenSidePanel()}>
+              <button
+                type="button"
+                className="btn btn--full popup__primary-btn"
+                onClick={() => void handleOpenSidePanel()}
+              >
                 打开侧边栏
               </button>
-              <div className="popup__row">
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  disabled={!context.supported}
-                  onClick={() => void handleRecapture()}
-                >
-                  重新抓取
-                </button>
-                <button type="button" className="btn btn--ghost" onClick={() => void handleFocusTab()}>
-                  返回页面
-                </button>
-                <button type="button" className="btn btn--ghost" onClick={() => void loadContext()}>
-                  刷新
-                </button>
-              </div>
+              <button
+                type="button"
+                className="btn btn--full popup__secondary-btn"
+                disabled={!context.supported}
+                onClick={() => void handleRecapture()}
+              >
+                重新保存
+              </button>
             </div>
           </>
         ) : (

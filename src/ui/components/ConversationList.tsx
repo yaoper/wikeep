@@ -44,19 +44,22 @@ export function ConversationList({ items, onDelete, onCopyUrl }: ConversationLis
         <div key={item.id} className="card">
           <div className="card__body">
             <div className="card__question">{item.matchedSnippet ?? item.question}</div>
-            {item.metadata?.repoNames?.length ? (
-              <div className="card__repos">
-                {item.metadata.repoNames.slice(0, 3).map((repo) => (
-                  <span key={repo} className="chip">
-                    {repo}
-                  </span>
-                ))}
-                {item.metadata.repoNames.length > 3 ? (
-                  <span className="chip">+{item.metadata.repoNames.length - 3}</span>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="card__time">{formatRelativeTime(item.updatedAt)}</div>
+            <div className="card__footer">
+              {item.metadata?.repoNames?.length ? (
+                <div className="card__repos">
+                  {item.metadata.repoNames.slice(0, 3).map((repo) => (
+                    <span key={repo} className="repo-badge">
+                      <span className="repo-badge__dot" />
+                      {repo}
+                    </span>
+                  ))}
+                  {item.metadata.repoNames.length > 3 ? (
+                    <span className="repo-badge">+{item.metadata.repoNames.length - 3}</span>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="card__time">{formatRelativeTime(item.updatedAt)}</div>
+            </div>
           </div>
 
           <div className="card__actions">
