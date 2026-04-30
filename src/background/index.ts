@@ -4,6 +4,7 @@ import {
   fetchDeepWikiSession
 } from '../api/deepwikiApi';
 import type { DeepWikiQuerySession } from '../api/deepwikiTypes';
+import { MAX_POLL_ATTEMPTS, PENDING_POLL_MS } from '../shared/constants';
 import type {
   ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
@@ -32,6 +33,9 @@ import {
 import { ensureSettings, getSettings, updateSettings } from '../storage/settingsRepository';
 
 const tabStatusCache = new Map<number, CaptureStatus>();
+const backgroundCaptureTimers = new Map<number, ReturnType<typeof setInterval>>();
+const backgroundCaptureAttempts = new Map<number, number>();
+const backgroundCaptureInFlight = new Set<number>();
 
 function getDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -90,6 +94,17 @@ async function cacheTabStatus(tabId: number, url: string | undefined, status?: C
   await setActionBadgeForTab(tabId, url, status ?? undefined);
 }
 
+function stopBackgroundCapturePolling(tabId: number): void {
+  const timer = backgroundCaptureTimers.get(tabId);
+
+  if (timer) {
+    clearInterval(timer);
+    backgroundCaptureTimers.delete(tabId);
+  }
+
+  backgroundCaptureAttempts.delete(tabId);
+}
+
 async function syncActiveTabBadge(): Promise<void> {
   const [tab] = await chrome.tabs.query({
     active: true,
@@ -134,9 +149,136 @@ async function notifyIfActiveTabChanged(tabId: number | undefined): Promise<void
   }
 }
 
+async function runBackgroundFallbackCapture(tabId: number, sourceUrl: string, queryId: string): Promise<void> {
+  if (backgroundCaptureInFlight.has(tabId)) {
+    return;
+  }
+
+  backgroundCaptureInFlight.add(tabId);
+
+  try {
+    const settings = await getSettings();
+
+    if (!settings.autoCaptureEnabled) {
+      stopBackgroundCapturePolling(tabId);
+      await cacheTabStatus(tabId, sourceUrl, {
+        supported: true,
+        active: false,
+        queryId,
+        sourceUrl,
+        pending: false,
+        reason: 'auto_capture_disabled'
+      });
+      await notifyIfActiveTabChanged(tabId);
+      return;
+    }
+
+    const existingCapture = await lookupConversationBySourceSessionId(queryId);
+
+    if (existingCapture.exists) {
+      stopBackgroundCapturePolling(tabId);
+      await cacheTabStatus(tabId, sourceUrl, {
+        supported: true,
+        active: false,
+        queryId,
+        sourceUrl,
+        pending: false,
+        reason: 'already_saved',
+        existingConversationId: existingCapture.conversationId,
+        lastCapturedAt: existingCapture.updatedAt,
+        repoNames: existingCapture.repoNames
+      });
+      await notifyIfActiveTabChanged(tabId);
+      return;
+    }
+
+    const result = await captureViaApi({
+      queryId,
+      sourceUrl,
+      tabId
+    });
+
+    if (!result.pending) {
+      stopBackgroundCapturePolling(tabId);
+    }
+  } catch (error) {
+    stopBackgroundCapturePolling(tabId);
+    await cacheTabStatus(tabId, sourceUrl, {
+      supported: true,
+      active: false,
+      queryId,
+      sourceUrl,
+      pending: false,
+      reason: 'api_fetch_failed',
+      errorMessage: ensureErrorMessage(error)
+    });
+    await notifyIfActiveTabChanged(tabId);
+  } finally {
+    backgroundCaptureInFlight.delete(tabId);
+  }
+}
+
+function startBackgroundCapturePolling(tabId: number, sourceUrl: string, queryId: string): void {
+  if (backgroundCaptureTimers.has(tabId)) {
+    return;
+  }
+
+  backgroundCaptureAttempts.set(tabId, 0);
+
+  const timer = setInterval(() => {
+    const attempts = (backgroundCaptureAttempts.get(tabId) ?? 0) + 1;
+    backgroundCaptureAttempts.set(tabId, attempts);
+
+    if (attempts > MAX_POLL_ATTEMPTS) {
+      stopBackgroundCapturePolling(tabId);
+      return;
+    }
+
+    void runBackgroundFallbackCapture(tabId, sourceUrl, queryId);
+  }, PENDING_POLL_MS);
+
+  backgroundCaptureTimers.set(tabId, timer);
+}
+
+async function ensureActiveTabCaptureProgress(): Promise<void> {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+
+  if (!tab?.id || !tab.url) {
+    return;
+  }
+
+  const queryId = extractQueryIdFromUrl(tab.url);
+
+  if (!queryId) {
+    stopBackgroundCapturePolling(tab.id);
+    return;
+  }
+
+  const status = await getPageStatus(tab.id);
+
+  if (status) {
+    return;
+  }
+
+  await cacheTabStatus(tab.id, tab.url, {
+    supported: true,
+    active: true,
+    queryId,
+    sourceUrl: tab.url,
+    pending: true,
+    reason: 'idle'
+  });
+  await notifyIfActiveTabChanged(tab.id);
+  await runBackgroundFallbackCapture(tab.id, tab.url, queryId);
+}
+
 async function handleActiveTabChange(): Promise<void> {
   await syncActiveTabBadge();
   await notifyActiveTabContextChanged();
+  await ensureActiveTabCaptureProgress();
 }
 
 async function reportPageStatus(
@@ -147,6 +289,10 @@ async function reportPageStatus(
 
   if (!tabId) {
     return;
+  }
+
+  if (payload.status.reason !== 'idle') {
+    stopBackgroundCapturePolling(tabId);
   }
 
   await cacheTabStatus(tabId, sender.tab?.url, payload.status);
@@ -192,6 +338,12 @@ async function captureViaApi(payload: CaptureDeepWikiSessionPayload): Promise<Ca
       performance: response.performance
     });
     await notifyIfActiveTabChanged(payload.tabId);
+
+    if (pending) {
+      startBackgroundCapturePolling(payload.tabId, payload.sourceUrl, payload.queryId);
+    } else {
+      stopBackgroundCapturePolling(payload.tabId);
+    }
   }
 
   return response;
@@ -238,6 +390,16 @@ async function getActiveTabContext(): Promise<ActiveTabContext> {
 
   const queryId = extractQueryIdFromUrl(tab.url) ?? undefined;
   const status = await getPageStatus(tab.id);
+  const derivedStatus = queryId && !status
+    ? {
+        supported: true,
+        active: true,
+        queryId,
+        sourceUrl: tab.url,
+        pending: true,
+        reason: 'idle' as const
+      }
+    : status ?? undefined;
 
   return {
     tabId: tab.id,
@@ -245,7 +407,7 @@ async function getActiveTabContext(): Promise<ActiveTabContext> {
     url: tab.url,
     supported: Boolean(queryId),
     queryId,
-    status: status ?? undefined
+    status: derivedStatus
   };
 }
 
@@ -335,6 +497,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabStatusCache.delete(tabId);
+  stopBackgroundCapturePolling(tabId);
 });
 
 chrome.windows.onFocusChanged.addListener((windowId) => {

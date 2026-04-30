@@ -341,11 +341,11 @@ async function init(): Promise<void> {
 
   setStatus({
     supported: true,
-    active: false,
+    active: true,
     queryId,
     sourceUrl: window.location.href,
     method: undefined,
-    pending: false,
+    pending: true,
     reason: 'idle',
     errorMessage: undefined,
     performance: undefined,

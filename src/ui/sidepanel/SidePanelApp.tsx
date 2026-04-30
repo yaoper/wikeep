@@ -33,7 +33,12 @@ function formatRelativeTime(timestamp: number): string {
 
 function isStatusPending(context: ActiveTabContext | null): boolean {
   const status = context?.status;
-  return Boolean(status?.pending || (status?.active && !status?.method) || status?.reason === 'dom_not_ready');
+  return Boolean(
+    status?.pending ||
+    (status?.active && !status?.method) ||
+    status?.reason === 'dom_not_ready' ||
+    status?.reason === 'idle'
+  );
 }
 
 function getStatusTone(context: ActiveTabContext | null): StatusTone {
@@ -116,7 +121,7 @@ function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
     return false;
   }
 
-  return isStatusPending(context) || !context.status;
+  return isStatusPending(context) || !context.status || context.status?.reason === 'idle';
 }
 
 function RefreshIcon() {
