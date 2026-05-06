@@ -353,7 +353,7 @@ export function SidePanelApp() {
   async function handleCopySourceUrl(sourceUrl: string) {
     try {
       await navigator.clipboard.writeText(sourceUrl);
-      setInfoMessage('来源地址已复制到剪贴板');
+      setInfoMessage('Session 地址已复制到剪贴板');
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
