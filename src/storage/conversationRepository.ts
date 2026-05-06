@@ -1,5 +1,6 @@
 import { searchConversations } from '../search/searchService';
 import type {
+  BackupData,
   CapturePayload,
   Conversation,
   ConversationDetail,
@@ -209,4 +210,41 @@ export async function pruneLegacyConversationData(): Promise<void> {
 
   await transaction.objectStore('messages').clear();
   await transaction.done;
+}
+
+export async function exportAllData(): Promise<BackupData> {
+  const db = await getDb();
+  const conversations = (await db.getAll('conversations')) as Conversation[];
+  const messages = (await db.getAll('messages')) as Message[];
+
+  return {
+    version: 1,
+    exportedAt: Date.now(),
+    conversations,
+    messages
+  };
+}
+
+export async function importAllData(
+  backup: BackupData
+): Promise<{ conversationCount: number; messageCount: number }> {
+  const db = await getDb();
+  const transaction = db.transaction(['conversations', 'messages'], 'readwrite');
+  const conversationStore = transaction.objectStore('conversations');
+  const messageStore = transaction.objectStore('messages');
+
+  for (const conversation of backup.conversations) {
+    await conversationStore.put(conversation);
+  }
+
+  for (const message of backup.messages) {
+    await messageStore.put(message);
+  }
+
+  await transaction.done;
+
+  return {
+    conversationCount: backup.conversations.length,
+    messageCount: backup.messages.length
+  };
 }

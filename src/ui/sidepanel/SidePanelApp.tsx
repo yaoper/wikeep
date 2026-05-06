@@ -4,19 +4,22 @@ import { ConversationList } from '../components/ConversationList';
 import { EmptyState } from '../components/EmptyState';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { SEARCH_DEBOUNCE_MS } from '../../shared/constants';
-import type { ActiveTabContext, CaptureResult, ConversationListItem, Settings } from '../../shared/types';
+import type { ActiveTabContext, BackupData, CaptureResult, ConversationListItem, Settings } from '../../shared/types';
 import { ensureErrorMessage, sendRuntimeMessage } from '../../shared/utils';
 import type {
   ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
   DeleteConversationPayload,
+  ExportDataResult,
+  ImportDataPayload,
+  ImportDataResult,
   ListConversationsPayload,
   RuntimeRequest,
   RuntimeResponse,
   UpdateSettingsPayload
 } from '../../shared/messages';
 
-type View = 'history' | 'settings';
+type View = 'history' | 'settings' | 'backup';
 type StatusTone = 'saved' | 'pending' | 'unknown';
 
 function formatRelativeTime(timestamp: number): string {
@@ -167,12 +170,14 @@ export function SidePanelApp() {
   const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const debouncedKeyword = useDebouncedValue(keyword, SEARCH_DEBOUNCE_MS);
-  const showBack = view === 'settings';
 
   async function loadConversations(nextKeyword?: string, options?: { silent?: boolean }) {
     if (!options?.silent) {
@@ -423,13 +428,78 @@ export function SidePanelApp() {
     }
   }
 
+  async function handleExportData() {
+    setExportLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const backup = await sendRuntimeMessage<ExportDataResult>('EXPORT_DATA');
+      const json = JSON.stringify(backup, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      anchor.href = url;
+      anchor.download = `wikeep-backup-${date}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setInfoMessage(`已导出 ${backup.conversations.length} 条会话记录。`);
+    } catch (error) {
+      setErrorMessage(`导出失败：${ensureErrorMessage(error)}`);
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  async function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    setImportLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text) as BackupData;
+
+      if (
+        typeof backup.version !== 'number' ||
+        !Array.isArray(backup.conversations) ||
+        !Array.isArray(backup.messages)
+      ) {
+        throw new Error('备份文件格式不正确，请选择由 Wikeep 导出的 JSON 文件。');
+      }
+
+      const result = await sendRuntimeMessage<ImportDataResult, ImportDataPayload>('IMPORT_DATA', { backup });
+      setInfoMessage(`已成功导入 ${result.conversationCount} 条会话记录。`);
+      await loadConversations(debouncedKeyword);
+    } catch (error) {
+      setErrorMessage(`导入失败：${ensureErrorMessage(error)}`);
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
   const statusTone = getStatusTone(activeContext);
   const statusActionLabel = getStatusActionLabel(activeContext);
   const statusSubtitle = contextLoading ? '请稍候…' : getStatusSubtitle(activeContext);
   const showRecentLabel = !keyword.trim() && conversations.length > 0;
+  const showBack = view === 'settings' || view === 'backup';
+  const toolbarTitle = view === 'settings' ? '设置' : view === 'backup' ? '数据备份' : '';
 
   return (
     <div className="panel">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        style={{ display: 'none' }}
+        onChange={(e) => void handleImportFileChange(e)}
+      />
       <div className={showBack ? 'panel__toolbar panel__toolbar--settings' : 'panel__toolbar'}>
         {showBack ? (
           <>
@@ -437,7 +507,7 @@ export function SidePanelApp() {
               <BackIcon />
               <span>返回</span>
             </button>
-            <div className="panel__toolbar-title">设置</div>
+            <div className="panel__toolbar-title">{toolbarTitle}</div>
           </>
         ) : (
           <>
@@ -474,6 +544,21 @@ export function SidePanelApp() {
                       <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
                     </svg>
                     设置
+                  </button>
+                  <button
+                    type="button"
+                    className="dropdown__item"
+                    onClick={() => {
+                      setView('backup');
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
+                      <path d="M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" />
+                      <polyline points="4 7 8 11 12 7" />
+                      <line x1="8" y1="2" x2="8" y2="11" />
+                    </svg>
+                    数据备份
                   </button>
                 </div>
               ) : null}
@@ -579,6 +664,44 @@ export function SidePanelApp() {
                 </div>
               </div>
             ) : null}
+          </div>
+        ) : view === 'backup' ? (
+          <div className="settings settings--compact">
+            <div className="settings-section">
+              <div className="settings__section-title">导出数据</div>
+              <div className="settings__item settings__item--compact">
+                <div className="settings__item-content">
+                  <div className="settings__label">导出为 JSON 文件</div>
+                  <div className="settings__help">将所有本地保存的会话数据导出为备份文件，可在重装插件后恢复。</div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--secondary settings__danger-btn"
+                  onClick={() => void handleExportData()}
+                  disabled={exportLoading}
+                >
+                  {exportLoading ? '导出中…' : '导出'}
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-section">
+              <div className="settings__section-title">导入数据</div>
+              <div className="settings__item settings__item--compact">
+                <div className="settings__item-content">
+                  <div className="settings__label">从备份文件恢复</div>
+                  <div className="settings__help">选择之前导出的 JSON 备份文件，将数据合并到当前本地记录中，不会删除已有数据。</div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--secondary settings__danger-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importLoading}
+                >
+                  {importLoading ? '导入中…' : '导入'}
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <>

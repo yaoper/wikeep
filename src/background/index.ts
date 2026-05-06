@@ -11,6 +11,7 @@ import type {
   CaptureDomSnapshotPayload,
   DeleteConversationPayload,
   GetConversationDetailPayload,
+  ImportDataPayload,
   ListConversationsPayload,
   LookupConversationByQueryIdPayload,
   ReportPageStatusPayload,
@@ -24,7 +25,9 @@ import { ensureErrorMessage } from '../shared/utils';
 import {
   clearAllData,
   deleteConversation,
+  exportAllData,
   getConversationDetail,
+  importAllData,
   listConversations,
   lookupConversationBySourceSessionId,
   pruneLegacyConversationData,
@@ -426,6 +429,10 @@ async function handleRuntimeCommand(
       return reportPageStatus(sender, payload as ReportPageStatusPayload);
     case 'ACTIVE_TAB_CONTEXT_CHANGED':
       return null;
+    case 'EXPORT_DATA':
+      return exportAllData();
+    case 'IMPORT_DATA':
+      return importAllData((payload as ImportDataPayload).backup);
     default:
       throw new Error(`Unsupported runtime command: ${String(command)}`);
   }

@@ -138,3 +138,10 @@ export interface ActiveTabContext {
   queryId?: string;
   status?: CaptureStatus;
 }
+
+export interface BackupData {
+  version: number;
+  exportedAt: number;
+  conversations: Conversation[];
+  messages: Message[];
+}

@@ -1,5 +1,6 @@
 import type {
   ActiveTabContext,
+  BackupData,
   CapturePayload,
   ExistingCaptureLookupResult,
   CaptureResult,
@@ -24,7 +25,9 @@ export type RuntimeCommand =
   | 'REPORT_PAGE_STATUS'
   | 'ACTIVE_TAB_CONTEXT_CHANGED'
   | 'GET_PAGE_STATUS'
-  | 'TRIGGER_RECAPTURE';
+  | 'TRIGGER_RECAPTURE'
+  | 'EXPORT_DATA'
+  | 'IMPORT_DATA';
 
 export interface RuntimeRequest<TPayload = unknown> {
   command: RuntimeCommand;
@@ -88,3 +91,13 @@ export type GetActiveTabContextResult = ActiveTabContext;
 export type CaptureSessionResult = CaptureResult;
 export type LookupConversationByQueryIdResult = ExistingCaptureLookupResult;
 export type PageStatusResult = CaptureStatus | null;
+export type ExportDataResult = BackupData;
+
+export interface ImportDataPayload {
+  backup: BackupData;
+}
+
+export interface ImportDataResult {
+  conversationCount: number;
+  messageCount: number;
+}
