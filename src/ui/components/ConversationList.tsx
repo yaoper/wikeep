@@ -4,6 +4,7 @@ interface ConversationListProps {
   items: ConversationListItem[];
   onDelete: (id: string) => void;
   onCopyUrl: (url: string) => void;
+  onOpenUrl: (url: string) => void;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -16,6 +17,16 @@ function formatRelativeTime(timestamp: number): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days} 天前`;
   return new Date(timestamp).toLocaleDateString('zh-CN');
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 3H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V9" />
+      <path d="M10 2h4v4" />
+      <line x1="14" y1="2" x2="7" y2="9" />
+    </svg>
+  );
 }
 
 function LinkIcon() {
@@ -37,7 +48,7 @@ function TrashIcon() {
   );
 }
 
-export function ConversationList({ items, onDelete, onCopyUrl }: ConversationListProps) {
+export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl }: ConversationListProps) {
   return (
     <div className="card-list">
       {items.map((item) => {
@@ -64,6 +75,14 @@ export function ConversationList({ items, onDelete, onCopyUrl }: ConversationLis
             </div>
 
             <div className="card__actions">
+              <button
+                type="button"
+                className="card__action-btn"
+                title="在浏览器中打开"
+                onClick={() => onOpenUrl(item.sourceUrl)}
+              >
+                <ExternalLinkIcon />
+              </button>
               <button
                 type="button"
                 className="card__action-btn"

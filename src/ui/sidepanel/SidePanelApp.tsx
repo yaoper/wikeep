@@ -721,6 +721,7 @@ export function SidePanelApp() {
                   items={conversations}
                   onDelete={(id) => void handleDeleteConversation(id)}
                   onCopyUrl={(url) => void handleCopySourceUrl(url)}
+                  onOpenUrl={(url) => window.open(url, '_blank')}
                 />
               </>
             )}
