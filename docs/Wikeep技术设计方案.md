@@ -104,13 +104,15 @@ Wikeep 的技术架构需要满足以下目标：
 
 ```text
 wikeep/
-├── Wikeep需求说明书.md
-├── Wikeep技术设计方案.md
 ├── README.md
+├── LICENSE
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
 ├── sidepanel.html
+├── docs/
+│   ├── Wikeep需求说明书.md
+│   └── Wikeep技术设计方案.md
 ├── scripts/
 │   └── build.mjs              # 双 Vite 构建入口（Side Panel/Background + Content Script）
 ├── public/
@@ -123,13 +125,12 @@ wikeep/
 │   │   └── index.ts           # 注入脚本：DOM 抓取 + API 抓取 + MutationObserver + 状态上报
 │   ├── api/
 │   │   ├── deepwikiApi.ts
-│   │   └── types.ts
+│   │   └── deepwikiTypes.ts
 │   ├── parser/
-│   │   └── ...                # 内容标准化、角色识别、hash 去重
+│   │   └── deepwikiDomParser.ts   # DOM 内容标准化、角色识别
 │   ├── storage/
 │   │   ├── db.ts
-│   │   ├── conversationRepository.ts   # SCHEMA_VERSION = 3
-│   │   ├── messageRepository.ts
+│   │   ├── conversationRepository.ts   # 对话 CRUD、导入导出
 │   │   └── settingsRepository.ts
 │   ├── search/
 │   │   └── searchService.ts
@@ -139,7 +140,6 @@ wikeep/
 │   │   │   └── SidePanelApp.tsx
 │   │   ├── components/
 │   │   │   ├── ConversationList.tsx
-│   │   │   ├── MessageBubble.tsx
 │   │   │   ├── SearchBox.tsx
 │   │   │   └── EmptyState.tsx
 │   │   ├── hooks/
@@ -151,10 +151,6 @@ wikeep/
 │       ├── types.ts
 │       └── utils.ts
 └── tests/
-    ├── parser/
-    ├── storage/
-    └── search/
-```
 
 ### 3.1 构建产物
 
@@ -947,13 +943,9 @@ Snippet 规则：
 | 组件 | 职责 |
 | --- | --- |
 | `App` | 初始化设置、路由和全局错误边界。 |
-| `HistoryPage` | 历史列表、搜索和空状态。 |
-| `ConversationDetailPage` | 加载和展示单条会话详情。 |
-| `SettingsPage` | 设置项和数据管理。 |
+| `SidePanelApp` | 主组件，管理视图切换（历史、设置、备份）。 |
+| `ConversationList` | 列表渲染和分页加载，含快捷操作（打开、复制、删除）。 |
 | `SearchBox` | 搜索输入、清空和 debounce。 |
-| `ConversationList` | 列表渲染和分页加载。 |
-| `ConversationCard` | 会话摘要展示。 |
-| `MessageBubble` | 用户/AI 消息展示。 |
 | `EmptyState` | 无数据、无搜索结果、错误状态。 |
 
 ### 11.4 状态管理
@@ -1279,10 +1271,8 @@ Background 在 `RuntimeResponse` 中以 `RuntimeErrorPayload`（`{ code, message
 - `hash`
 - `deepwikiParser`
 - `conversationRepository`
-- `messageRepository`
 - `settingsRepository`
 - `searchService`
-- 后续 `markdownExporter`
 
 ### 18.2 集成测试
 

@@ -2,11 +2,7 @@ import type {
   ActiveTabContext,
   BackupData,
   CapturePayload,
-  ExistingCaptureLookupResult,
-  CaptureResult,
   CaptureStatus,
-  ConversationDetail,
-  ConversationListItem,
   Settings
 } from './types';
 
@@ -83,14 +79,6 @@ export interface UpdateSettingsPayload {
   patch: Partial<Settings>;
 }
 
-export type ListConversationsResult = ConversationListItem[];
-export type GetConversationDetailResult = ConversationDetail | null;
-export type GetSettingsResult = Settings;
-export type UpdateSettingsResult = Settings;
-export type GetActiveTabContextResult = ActiveTabContext;
-export type CaptureSessionResult = CaptureResult;
-export type LookupConversationByQueryIdResult = ExistingCaptureLookupResult;
-export type PageStatusResult = CaptureStatus | null;
 export type ExportDataResult = BackupData;
 
 export interface ImportDataPayload {

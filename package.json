@@ -15,7 +15,7 @@
     "vite"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "description": "Wikeep Chrome extension for saving DeepWiki sessions locally.",
   "dependencies": {
     "idb": "^8.0.3",

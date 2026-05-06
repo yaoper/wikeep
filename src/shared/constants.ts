@@ -1,6 +1,5 @@
 import type { Settings } from './types';
 
-export const APP_NAME = 'Wikeep';
 export const DB_NAME = 'wikeep';
 export const DB_VERSION = 2;
 export const SETTINGS_KEY = 'wikeep.settings';

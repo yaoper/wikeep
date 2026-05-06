@@ -1,4 +1,3 @@
-import type { ParsedMessage } from './types';
 import type { RuntimeCommand, RuntimeResponse } from './messages';
 
 export function normalizeText(value: string): string {
@@ -25,25 +24,6 @@ export function stableHash(value: string): string {
 
 export function buildConversationId(sourceSessionId: string | undefined, sourceUrl: string): string {
   return sourceSessionId ? `deepwiki:${sourceSessionId}` : `deepwiki:${stableHash(sourceUrl)}`;
-}
-
-export function buildMessageId(
-  conversationId: string,
-  order: number,
-  externalId: string | undefined,
-  contentHash: string,
-  role: string
-): string {
-  const seed = externalId ?? `${order}:${role}:${contentHash}`;
-  return `${conversationId}:${stableHash(seed)}`;
-}
-
-export function summarizeMessages(messages: ParsedMessage[]): string {
-  const assistantMessage = messages.find((message) => message.role === 'assistant' && message.content);
-  const fallbackMessage = messages.find((message) => message.content);
-  const summarySource = assistantMessage?.content ?? fallbackMessage?.content ?? '';
-
-  return clipText(summarySource.replace(/\s+/g, ' '), 160);
 }
 
 export function buildSnippet(text: string, keyword: string): string {
@@ -91,8 +71,4 @@ export async function sendRuntimeMessage<TResponse, TPayload = unknown>(
   }
 
   return response.data as TResponse;
-}
-
-export function assertUnreachable(value: never): never {
-  throw new Error(`Unexpected value: ${String(value)}`);
 }
