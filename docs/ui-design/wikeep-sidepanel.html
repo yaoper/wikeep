@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wikeep — Side Panel Design</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #F1EFE8;
+    min-height: 100vh;
+    padding: 36px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+  }
+
+  h1 {
+    font-size: 13px;
+    font-weight: 500;
+    color: #888780;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .panels {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .col-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #888780;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  /* ── Extension frame ── */
+  .ext {
+    width: 270px;
+    border-radius: 14px;
+    border: 1px solid #D3D1C7;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .hd {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 13px;
+    border-bottom: 1px solid #E8E6DF;
+    background: #ffffff;
+  }
+
+  .hd-l {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .logo {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: #534AB7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    flex-shrink: 0;
+  }
+
+  .hd-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1a1a1a;
+  }
+
+  .hd-r {
+    display: flex;
+    gap: 5px;
+  }
+
+  .ico-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    border: 1px solid #E0DDD6;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .ico-btn:hover {
+    background: #F5F3EE;
+  }
+
+  .ico-btn svg {
+    width: 14px;
+    height: 14px;
+    stroke: #888780;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    display: block;
+  }
+
+  /* ── Status bar ── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 13px;
+    border-bottom: 1px solid #E0DDD6;
+  }
+
+  .status-bar.saved {
+    background: #F0FBF6;
+    border-bottom-color: #9FE1CB;
+  }
+
+  .status-bar.saving {
+    background: #FAFAEC;
+    border-bottom-color: #FAC775;
+  }
+
+  .status-bar.unknown {
+    background: #F5F3EE;
+    border-bottom-color: #E0DDD6;
+  }
+
+  .sb-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .sb-dot.saved  { background: #1D9E75; }
+  .sb-dot.saving { background: #BA7517; }
+  .sb-dot.unknown { background: #888780; }
+
+  .sb-main { flex: 1; min-width: 0; }
+
+  .sb-title {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  .sb-title.saved   { color: #0F6E56; }
+  .sb-title.saving  { color: #854F0B; }
+  .sb-title.unknown { color: #2C2C2A; }
+
+  .sb-sub {
+    font-size: 11px;
+    color: #888780;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sb-action {
+    font-size: 11px;
+    font-weight: 500;
+    color: #534AB7;
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .sb-action:hover { text-decoration: underline; }
+
+  /* ── Search ── */
+  .search-wrap {
+    padding: 10px 12px 7px;
+    background: #fff;
+  }
+
+  .search-inner {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: #F5F3EE;
+    border: 1px solid #D3D1C7;
+  }
+
+  .search-inner svg {
+    width: 13px;
+    height: 13px;
+    stroke: #B4B2A9;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+    display: block;
+  }
+
+  .search-inner span {
+    font-size: 12px;
+    color: #B4B2A9;
+  }
+
+  /* ── List ── */
+  .sec-lbl {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    color: #B4B2A9;
+    padding: 6px 13px 3px;
+    background: #fff;
+    text-transform: uppercase;
+  }
+
+  .item {
+    padding: 9px 13px;
+    border-top: 1px solid #F0EDE8;
+    background: #fff;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .item:hover { background: #FAFAF8; }
+
+  .item-q {
+    font-size: 12px;
+    color: #2C2C2A;
+    line-height: 1.5;
+    margin-bottom: 6px;
+  }
+
+  .item-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #3C3489;
+    background: #EEEDFE;
+    border-radius: 5px;
+    padding: 2px 7px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .badge-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #7F77DD;
+    flex-shrink: 0;
+  }
+
+  .item-time {
+    font-size: 11px;
+    color: #B4B2A9;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* ── Color spec table ── */
+  .spec-card {
+    width: 270px;
+    background: #ffffff;
+    border: 1px solid #D3D1C7;
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  .spec-card-lbl {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    color: #888780;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .spec-group-lbl {
+    font-size: 10px;
+    font-weight: 500;
+    color: #B4B2A9;
+    padding: 8px 0 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .spec-group-lbl:first-of-type { padding-top: 0; }
+
+  .spec-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-top: 1px solid #F0EDE8;
+  }
+
+  .spec-row:first-of-type { border-top: none; }
+
+  .swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+
+  .spec-name {
+    font-size: 11px;
+    color: #5F5E5A;
+    flex: 1;
+  }
+
+  .spec-hex {
+    font-size: 11px;
+    font-family: "SF Mono", "Fira Code", monospace;
+    color: #2C2C2A;
+  }
+
+  /* ── Icon badge panel ── */
+  .badge-panel {
+    width: 270px;
+    background: #fff;
+    border: 1px solid #D3D1C7;
+    border-radius: 14px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+
+  .badge-panel-lbl {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    color: #888780;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .icon-row {
+    display: flex;
+    gap: 24px;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .icon-case {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .icon-case-lbl {
+    font-size: 11px;
+    color: #5F5E5A;
+  }
+
+  .ext-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+    background: #534AB7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    position: relative;
+  }
+
+  .pip {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #F1EFE8;
+  }
+
+  .pip-green { background: #1D9E75; }
+  .pip-amber { background: #BA7517; }
+  .pip-gray  { background: #888780; }
+</style>
+</head>
+<body>
+
+<h1>Wikeep — Side Panel Design Spec</h1>
+
+<div class="panels">
+
+  <!-- ── 已保存状态 ── -->
+  <div class="col">
+    <div class="col-label">已保存状态</div>
+    <div class="ext">
+      <div class="hd">
+        <div class="hd-l">
+          <div class="logo">W</div>
+          <span class="hd-name">Wikeep</span>
+        </div>
+        <div class="hd-r">
+          <div class="ico-btn" title="刷新">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </div>
+          <div class="ico-btn" title="更多">
+            <svg viewBox="0 0 24 24">
+              <circle cx="12" cy="5"  r="1" stroke="none" fill="#888780"/>
+              <circle cx="12" cy="12" r="1" stroke="none" fill="#888780"/>
+              <circle cx="12" cy="19" r="1" stroke="none" fill="#888780"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar saved">
+        <div class="sb-dot saved"></div>
+        <div class="sb-main">
+          <div class="sb-title saved">Session 已保存</div>
+          <div class="sb-sub">infiniflow/ragflow · 2 分钟前</div>
+        </div>
+        <span class="sb-action">重新保存</span>
+      </div>
+
+      <div class="search-wrap">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>支持搜索仓库名称或者对话内容</span>
+        </div>
+      </div>
+
+      <div class="sec-lbl">最近</div>
+
+      <div class="item">
+        <div class="item-q">ragflow 是否可以支持配置金山云的对象存储服务，替换 MinIO</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>infiniflow/ragflow</span>
+          <span class="item-time">8 分钟前</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">能本地化部署么</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>mermaid-js/mermaid</span>
+          <span class="item-time">9 分钟前</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">介绍下 langchain 的结构</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>langchain-ai/langchain</span>
+          <span class="item-time">10 分钟前</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 保存中状态 ── -->
+  <div class="col">
+    <div class="col-label">保存中状态</div>
+    <div class="ext">
+      <div class="hd">
+        <div class="hd-l">
+          <div class="logo">W</div>
+          <span class="hd-name">Wikeep</span>
+        </div>
+        <div class="hd-r">
+          <div class="ico-btn" title="刷新">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </div>
+          <div class="ico-btn" title="更多">
+            <svg viewBox="0 0 24 24">
+              <circle cx="12" cy="5"  r="1" stroke="none" fill="#888780"/>
+              <circle cx="12" cy="12" r="1" stroke="none" fill="#888780"/>
+              <circle cx="12" cy="19" r="1" stroke="none" fill="#888780"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar saving">
+        <div class="sb-dot saving"></div>
+        <div class="sb-main">
+          <div class="sb-title saving">Session 保存中</div>
+          <div class="sb-sub">正在获取页面 Session 信息</div>
+        </div>
+        <span class="sb-action">手动保存</span>
+      </div>
+
+      <div class="search-wrap">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>支持搜索仓库名称或者对话内容</span>
+        </div>
+      </div>
+
+      <div class="sec-lbl">最近</div>
+
+      <div class="item">
+        <div class="item-q">ragflow 是否可以支持配置金山云的对象存储服务，替换 MinIO</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>infiniflow/ragflow</span>
+          <span class="item-time">8 分钟前</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">能本地化部署么</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>mermaid-js/mermaid</span>
+          <span class="item-time">9 分钟前</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">介绍下 langchain 的结构</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>langchain-ai/langchain</span>
+          <span class="item-time">10 分钟前</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 非 DeepWiki 页面 ── -->
+  <div class="col">
+    <div class="col-label">非 DeepWiki 页面</div>
+    <div class="ext">
+      <div class="hd">
+        <div class="hd-l">
+          <div class="logo">W</div>
+          <span class="hd-name">Wikeep</span>
+        </div>
+        <div class="hd-r">
+          <div class="ico-btn" title="刷新">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </div>
+          <div class="ico-btn" title="更多">
+            <svg viewBox="0 0 24 24">
+              <circle cx="12" cy="5"  r="1" stroke="none" fill="#888780"/>
+              <circle cx="12" cy="12" r="1" stroke="none" fill="#888780"/>
+              <circle cx="12" cy="19" r="1" stroke="none" fill="#888780"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar unknown">
+        <div class="sb-dot unknown"></div>
+        <div class="sb-main">
+          <div class="sb-title unknown">非 DeepWiki 页面</div>
+          <div class="sb-sub">切换到 DeepWiki 后自动识别 Session</div>
+        </div>
+      </div>
+
+      <div class="search-wrap">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>支持搜索仓库名称或者对话内容</span>
+        </div>
+      </div>
+
+      <div class="sec-lbl">最近</div>
+
+      <div class="item">
+        <div class="item-q">ragflow 是否可以支持配置金山云的对象存储服务，替换 MinIO</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>infiniflow/ragflow</span>
+          <span class="item-time">8 分钟前</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">能本地化部署么</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>mermaid-js/mermaid</span>
+          <span class="item-time">9 分钟前</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">介绍下 langchain 的结构</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>langchain-ai/langchain</span>
+          <span class="item-time">10 分钟前</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Icon badge -->
+    <div class="badge-panel">
+      <div class="badge-panel-lbl">插件图标角标</div>
+      <div class="icon-row">
+        <div class="icon-case">
+          <div class="ext-icon">W<div class="pip pip-green"></div></div>
+          <div class="icon-case-lbl">已保存</div>
+        </div>
+        <div class="icon-case">
+          <div class="ext-icon">W<div class="pip pip-amber"></div></div>
+          <div class="icon-case-lbl">保存中</div>
+        </div>
+        <div class="icon-case">
+          <div class="ext-icon">W<div class="pip pip-gray"></div></div>
+          <div class="icon-case-lbl">非目标页</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 色号规范 ── -->
+  <div class="col" style="align-self: center;">
+    <div class="spec-card">
+      <div class="spec-card-lbl">色号规范</div>
+
+      <div class="spec-group-lbl">品牌色</div>
+      <div class="spec-row"><div class="swatch" style="background:#534AB7;"></div><div class="spec-name">Logo / 主按钮 / 操作链接</div><div class="spec-hex">#534AB7</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#EEEDFE;"></div><div class="spec-name">仓库 badge 背景</div><div class="spec-hex">#EEEDFE</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#3C3489;"></div><div class="spec-name">仓库 badge 文字</div><div class="spec-hex">#3C3489</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#7F77DD;"></div><div class="spec-name">仓库 badge 圆点</div><div class="spec-hex">#7F77DD</div></div>
+
+      <div class="spec-group-lbl">已保存状态</div>
+      <div class="spec-row"><div class="swatch" style="background:#F0FBF6;"></div><div class="spec-name">状态条背景</div><div class="spec-hex">#F0FBF6</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#9FE1CB;"></div><div class="spec-name">状态条下边框</div><div class="spec-hex">#9FE1CB</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#0F6E56;"></div><div class="spec-name">标题文字</div><div class="spec-hex">#0F6E56</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#1D9E75;"></div><div class="spec-name">圆点 / 角标</div><div class="spec-hex">#1D9E75</div></div>
+
+      <div class="spec-group-lbl">保存中状态</div>
+      <div class="spec-row"><div class="swatch" style="background:#FAFAEC;"></div><div class="spec-name">状态条背景</div><div class="spec-hex">#FAFAEC</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#FAC775;"></div><div class="spec-name">状态条下边框</div><div class="spec-hex">#FAC775</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#854F0B;"></div><div class="spec-name">标题文字</div><div class="spec-hex">#854F0B</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#BA7517;"></div><div class="spec-name">圆点 / 角标</div><div class="spec-hex">#BA7517</div></div>
+
+      <div class="spec-group-lbl">非目标页状态</div>
+      <div class="spec-row"><div class="swatch" style="background:#F5F3EE;"></div><div class="spec-name">状态条背景</div><div class="spec-hex">#F5F3EE</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#888780;"></div><div class="spec-name">圆点 / 角标</div><div class="spec-hex">#888780</div></div>
+
+      <div class="spec-group-lbl">通用</div>
+      <div class="spec-row"><div class="swatch" style="background:#D3D1C7;"></div><div class="spec-name">外框边线</div><div class="spec-hex">#D3D1C7</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#E8E6DF;"></div><div class="spec-name">Header 下边线</div><div class="spec-hex">#E8E6DF</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#F0EDE8;"></div><div class="spec-name">列表分隔线</div><div class="spec-hex">#F0EDE8</div></div>
+      <div class="spec-row"><div class="swatch" style="background:#B4B2A9;"></div><div class="spec-name">占位文字 / 时间</div><div class="spec-hex">#B4B2A9</div></div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

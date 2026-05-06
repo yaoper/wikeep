@@ -1,0 +1,535 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.canvas {
+  background: #F1EFE8;
+  border-radius: 14px;
+  padding: 28px 24px;
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.col-label {
+  font-size: 11px; font-weight: 500; color: #888780;
+  letter-spacing: 0.07em; text-transform: uppercase;
+}
+
+/* ── ext frame ── */
+.ext {
+  width: 270px;
+  border-radius: 14px;
+  border: 1px solid #D3D1C7;
+  background: #fff;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── toolbar row (replaces header) ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #E8E6DF;
+  background: #fff;
+}
+
+.search-inner {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #F5F3EE;
+  border: 1px solid #D3D1C7;
+}
+
+.search-inner svg {
+  width: 13px; height: 13px;
+  stroke: #B4B2A9; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  flex-shrink: 0; display: block;
+}
+
+.search-inner span { font-size: 12px; color: #B4B2A9; }
+
+.ico-btn {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  border: 1px solid #E0DDD6;
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+  transition: background 0.12s;
+}
+.ico-btn:hover { background: #F5F3EE; }
+.ico-btn svg {
+  width: 14px; height: 14px;
+  stroke: #888780; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  display: block;
+}
+
+/* ── status bar ── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 13px;
+  border-bottom: 1px solid #E0DDD6;
+}
+.status-bar.saved  { background: #F0FBF6; border-bottom-color: #9FE1CB; }
+.status-bar.saving { background: #FAFAEC; border-bottom-color: #FAC775; }
+.status-bar.unknown { background: #F5F3EE; border-bottom-color: #E0DDD6; }
+
+.sb-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.sb-dot.saved   { background: #1D9E75; }
+.sb-dot.saving  { background: #BA7517; }
+.sb-dot.unknown { background: #888780; }
+
+.sb-main { flex: 1; min-width: 0; }
+.sb-title { font-size: 12px; font-weight: 500; }
+.sb-title.saved   { color: #0F6E56; }
+.sb-title.saving  { color: #854F0B; }
+.sb-title.unknown { color: #2C2C2A; }
+.sb-sub { font-size: 11px; color: #888780; margin-top: 1px; }
+.sb-action {
+  font-size: 11px; font-weight: 500; color: #534AB7;
+  cursor: pointer; flex-shrink: 0; white-space: nowrap;
+}
+
+/* ── list ── */
+.sec-lbl {
+  font-size: 10px; font-weight: 500;
+  letter-spacing: 0.07em; color: #B4B2A9;
+  padding: 7px 13px 3px;
+  text-transform: uppercase;
+}
+
+.item {
+  padding: 9px 13px;
+  border-top: 1px solid #F0EDE8;
+  background: #fff;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.12s;
+}
+
+/* hover state */
+.item:hover { background: #F7F5FF; }
+
+.item:hover .item-q { color: #534AB7; }
+
+.item-actions {
+  display: none;
+  gap: 4px;
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.item:hover .item-actions { display: flex; }
+.item:hover .item-time { opacity: 0; }
+
+.act-btn {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  border: 1px solid #D3D1C7;
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.act-btn:hover { background: #EEEDFE; border-color: #AFA9EC; }
+.act-btn svg {
+  width: 12px; height: 12px;
+  stroke: #888780; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  display: block;
+}
+.act-btn.del svg { stroke: #E24B4A; }
+.act-btn.del:hover { background: #FCEBEB; border-color: #F09595; }
+
+.item-q {
+  font-size: 12px; color: #2C2C2A;
+  line-height: 1.5; margin-bottom: 6px;
+  transition: color 0.12s;
+  padding-right: 60px;
+}
+
+.item-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #3C3489; background: #EEEDFE;
+  border-radius: 5px; padding: 2px 7px;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; background: #7F77DD; flex-shrink: 0; }
+.item-time { font-size: 11px; color: #B4B2A9; white-space: nowrap; flex-shrink: 0; transition: opacity 0.12s; }
+
+/* ── toast ── */
+.toast-wrap {
+  position: absolute;
+  top: 90px;
+  left: 10px; right: 10px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #E6F1FB;
+  border: 1px solid #85B7EB;
+  font-size: 12px;
+  color: #0C447C;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  animation: toastIn 0.22s ease forwards, toastOut 0.3s ease 2.5s forwards;
+}
+
+.toast svg {
+  width: 13px; height: 13px;
+  stroke: #185FA5; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  flex-shrink: 0; display: block;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-6px); }
+}
+
+/* ── hover annotation ── */
+.annotation {
+  width: 270px;
+  background: #fff;
+  border: 1px solid #D3D1C7;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.ann-title { font-size: 10px; font-weight: 500; letter-spacing: 0.07em; color: #888780; text-transform: uppercase; margin-bottom: 10px; }
+.ann-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-top: 1px solid #F0EDE8; }
+.ann-row:first-of-type { border-top: none; }
+.ann-swatch { width: 28px; height: 20px; border-radius: 5px; flex-shrink: 0; margin-top: 1px; }
+.ann-desc { font-size: 11px; color: #5F5E5A; line-height: 1.5; }
+.ann-hex { font-size: 10px; font-family: "SF Mono", "Fira Code", monospace; color: #888780; margin-top: 1px; }
+</style>
+
+<h2 style="display:none">Wikeep side panel 无自定义 header 版本含 toast 和 hover 状态设计</h2>
+
+<div class="canvas">
+
+  <!-- 已保存 + Toast 演示 -->
+  <div class="col">
+    <div class="col-label">已保存 · Toast 提示</div>
+    <div class="ext">
+      <div class="toolbar">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>支持搜索仓库名称或者对话内容</span>
+        </div>
+        <div class="ico-btn" title="刷新">
+          <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </div>
+        <div class="ico-btn" title="更多">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="5"  r="1.2" stroke="none" fill="#888780"/>
+            <circle cx="12" cy="12" r="1.2" stroke="none" fill="#888780"/>
+            <circle cx="12" cy="19" r="1.2" stroke="none" fill="#888780"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="status-bar saved">
+        <div class="sb-dot saved"></div>
+        <div class="sb-main">
+          <div class="sb-title saved">Session 已保存</div>
+          <div class="sb-sub">infiniflow/ragflow · 1 分钟前</div>
+        </div>
+        <span class="sb-action">重新保存</span>
+      </div>
+
+      <div class="toast-wrap">
+        <div class="toast">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          来源地址已复制到剪贴板
+        </div>
+      </div>
+
+      <div class="sec-lbl">最近</div>
+      <div class="item">
+        <div class="item-q">介绍下 langchain 的结构</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>langchain-ai/langchain</span>
+          <span class="item-time">1 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn" title="复制">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </div>
+          <div class="act-btn del" title="删除">
+            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">能本地化部署么</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>mermaid-js/mermaid</span>
+          <span class="item-time">13 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn" title="复制">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </div>
+          <div class="act-btn del" title="删除">
+            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">ragflow 是否可以支持配置金山云的对象存储服务，替换 MinIO</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>infiniflow/ragflow</span>
+          <span class="item-time">8 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn" title="复制">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </div>
+          <div class="act-btn del" title="删除">
+            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 保存中 -->
+  <div class="col">
+    <div class="col-label">保存中 · Hover 演示</div>
+    <div class="ext">
+      <div class="toolbar">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>支持搜索仓库名称或者对话内容</span>
+        </div>
+        <div class="ico-btn" title="刷新">
+          <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </div>
+        <div class="ico-btn" title="更多">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="5"  r="1.2" stroke="none" fill="#888780"/>
+            <circle cx="12" cy="12" r="1.2" stroke="none" fill="#888780"/>
+            <circle cx="12" cy="19" r="1.2" stroke="none" fill="#888780"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="status-bar saving">
+        <div class="sb-dot saving"></div>
+        <div class="sb-main">
+          <div class="sb-title saving">Session 保存中</div>
+          <div class="sb-sub">正在获取页面 Session 信息</div>
+        </div>
+        <span class="sb-action">手动保存</span>
+      </div>
+
+      <div class="sec-lbl">最近</div>
+
+      <!-- simulated hover row -->
+      <div class="item" style="background:#F7F5FF;">
+        <div class="item-q" style="color:#534AB7; padding-right:60px;">介绍下 langchain 的结构</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>langchain-ai/langchain</span>
+          <span class="item-time" style="opacity:0;">1 分钟前</span>
+        </div>
+        <div class="item-actions" style="display:flex;">
+          <div class="act-btn" title="复制">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </div>
+          <div class="act-btn del" title="删除">
+            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">能本地化部署么</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>mermaid-js/mermaid</span>
+          <span class="item-time">13 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+          <div class="act-btn del"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">ragflow 是否可以支持配置金山云的对象存储服务，替换 MinIO</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>infiniflow/ragflow</span>
+          <span class="item-time">8 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+          <div class="act-btn del"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 非 DeepWiki -->
+  <div class="col">
+    <div class="col-label">非 DeepWiki 页面</div>
+    <div class="ext">
+      <div class="toolbar">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>支持搜索仓库名称或者对话内容</span>
+        </div>
+        <div class="ico-btn" title="刷新">
+          <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </div>
+        <div class="ico-btn" title="更多">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="5"  r="1.2" stroke="none" fill="#888780"/>
+            <circle cx="12" cy="12" r="1.2" stroke="none" fill="#888780"/>
+            <circle cx="12" cy="19" r="1.2" stroke="none" fill="#888780"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="status-bar unknown">
+        <div class="sb-dot unknown"></div>
+        <div class="sb-main">
+          <div class="sb-title unknown">非 DeepWiki 页面</div>
+          <div class="sb-sub">切换到 DeepWiki 后自动识别 Session</div>
+        </div>
+      </div>
+
+      <div class="sec-lbl">最近</div>
+      <div class="item">
+        <div class="item-q">介绍下 langchain 的结构</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>langchain-ai/langchain</span>
+          <span class="item-time">1 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+          <div class="act-btn del"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">能本地化部署么</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>mermaid-js/mermaid</span>
+          <span class="item-time">13 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+          <div class="act-btn del"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="item-q">ragflow 是否可以支持配置金山云的对象存储服务，替换 MinIO</div>
+        <div class="item-foot">
+          <span class="badge"><span class="badge-dot"></span>infiniflow/ragflow</span>
+          <span class="item-time">8 分钟前</span>
+        </div>
+        <div class="item-actions">
+          <div class="act-btn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></div>
+          <div class="act-btn del"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 说明卡片 -->
+  <div class="col" style="align-self:center; gap: 12px;">
+
+    <div class="annotation">
+      <div class="ann-title">Hover 状态规范</div>
+      <div class="ann-row">
+        <div class="ann-swatch" style="background:#F7F5FF; border:1px solid #D3D1C7;"></div>
+        <div>
+          <div class="ann-desc">行背景 → <code style="font-size:10px;">#F7F5FF</code></div>
+          <div class="ann-hex">浅紫色，与品牌色呼应</div>
+        </div>
+      </div>
+      <div class="ann-row">
+        <div class="ann-swatch" style="background:#534AB7; border:1px solid #D3D1C7;"></div>
+        <div>
+          <div class="ann-desc">问题文字 → <code style="font-size:10px;">#534AB7</code></div>
+          <div class="ann-hex">变为品牌紫，暗示可点击</div>
+        </div>
+      </div>
+      <div class="ann-row">
+        <div class="ann-swatch" style="background:transparent; border:1px dashed #D3D1C7; display:flex; align-items:center; justify-content:center;">
+          <span style="font-size:9px; color:#888780;">隐藏</span>
+        </div>
+        <div>
+          <div class="ann-desc">时间文字 → opacity: 0</div>
+          <div class="ann-hex">让出空间给操作按钮</div>
+        </div>
+      </div>
+      <div class="ann-row">
+        <div style="display:flex; gap:3px; flex-shrink:0; margin-top:1px;">
+          <div style="width:20px; height:20px; border-radius:5px; background:#fff; border:1px solid #D3D1C7; display:flex; align-items:center; justify-content:center;">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#888780" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </div>
+          <div style="width:20px; height:20px; border-radius:5px; background:#fff; border:1px solid #D3D1C7; display:flex; align-items:center; justify-content:center;">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#E24B4A" stroke-width="1.8" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </div>
+        </div>
+        <div>
+          <div class="ann-desc">操作按钮浮出：复制 + 删除</div>
+          <div class="ann-hex">删除用红色 <code style="font-size:10px;">#E24B4A</code> 警示</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <div class="ann-title">Toast 规范</div>
+      <div class="ann-row">
+        <div class="ann-swatch" style="background:#E6F1FB; border:1px solid #85B7EB;"></div>
+        <div>
+          <div class="ann-desc">背景 <code style="font-size:10px;">#E6F1FB</code> · 边框 <code style="font-size:10px;">#85B7EB</code></div>
+          <div class="ann-hex">蓝色信息级，区别于状态条</div>
+        </div>
+      </div>
+      <div class="ann-row">
+        <div class="ann-swatch" style="background:#0C447C; border:1px solid #D3D1C7;"></div>
+        <div>
+          <div class="ann-desc">文字 <code style="font-size:10px;">#0C447C</code></div>
+          <div class="ann-hex">深蓝，对比度充足</div>
+        </div>
+      </div>
+      <div class="ann-row">
+        <div class="ann-swatch" style="background:transparent; border:1px dashed #D3D1C7; display:flex; align-items:center; justify-content:center;">
+          <span style="font-size:9px; color:#888780;">动效</span>
+        </div>
+        <div>
+          <div class="ann-desc">滑入 0.22s · 停留 2.5s · 淡出 0.3s</div>
+          <div class="ann-hex">叠在内容上方，不撑开布局</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
