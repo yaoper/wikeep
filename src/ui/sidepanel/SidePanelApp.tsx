@@ -154,8 +154,9 @@ function BackIcon() {
 function ToastIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
   );
 }
@@ -489,7 +490,7 @@ export function SidePanelApp() {
   const statusSubtitle = contextLoading ? '请稍候…' : getStatusSubtitle(activeContext);
   const showRecentLabel = !keyword.trim() && conversations.length > 0;
   const showBack = view === 'settings' || view === 'backup';
-  const toolbarTitle = view === 'settings' ? '设置' : view === 'backup' ? '数据备份' : '';
+  const toolbarTitle = view === 'settings' ? '设置' : view === 'backup' ? '数据备份与恢复' : '';
 
   return (
     <div className="panel">
@@ -554,11 +555,12 @@ export function SidePanelApp() {
                     }}
                   >
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
-                      <path d="M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" />
-                      <polyline points="4 7 8 11 12 7" />
-                      <line x1="8" y1="2" x2="8" y2="11" />
+                      <ellipse cx="8" cy="4" rx="6" ry="2" />
+                      <path d="M2 4v3c0 1.1 2.7 2 6 2s6-.9 6-2V4" />
+                      <path d="M2 7v3c0 1.1 2.7 2 6 2s6-.9 6-2V7" />
+                      <path d="M2 10v2c0 1.1 2.7 2 6 2s6-.9 6-2v-2" />
                     </svg>
-                    数据备份
+                    数据备份与恢复
                   </button>
                 </div>
               ) : null}
