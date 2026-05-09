@@ -5,6 +5,7 @@ interface ConversationListProps {
   onDelete: (id: string) => void;
   onCopyUrl: (url: string) => void;
   onOpenUrl: (url: string) => void;
+  onExportMarkdown: (id: string) => void;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -46,7 +47,17 @@ function TrashIcon() {
   );
 }
 
-export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl }: ConversationListProps) {
+function ExportIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 2v8" />
+      <polyline points="4,7 8,11 12,7" />
+      <path d="M3 13h10" />
+    </svg>
+  );
+}
+
+export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl, onExportMarkdown }: ConversationListProps) {
   return (
     <div className="card-list">
       {items.map((item) => {
@@ -88,6 +99,14 @@ export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl }: Conv
                 onClick={() => onCopyUrl(item.sourceUrl)}
               >
                 <CopyIcon />
+              </button>
+              <button
+                type="button"
+                className="card__action-btn"
+                title="导出 Markdown"
+                onClick={() => onExportMarkdown(item.id)}
+              >
+                <ExportIcon />
               </button>
               <button
                 type="button"

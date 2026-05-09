@@ -1111,8 +1111,7 @@ p {
   align-items: center;
   gap: 4px;
   right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 9px;
 }
 
 .card:hover .card__actions,

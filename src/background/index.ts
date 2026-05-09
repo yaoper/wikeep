@@ -10,6 +10,8 @@ import type {
   CaptureDeepWikiSessionPayload,
   CaptureDomSnapshotPayload,
   DeleteConversationPayload,
+  ExportConversationMarkdownPayload,
+  ExportConversationMarkdownResult,
   GetConversationDetailPayload,
   ImportDataPayload,
   ListConversationsPayload,
@@ -21,12 +23,13 @@ import type {
   UpdateSettingsPayload
 } from '../shared/messages';
 import type { ActiveTabContext, CaptureResult, CaptureStatus } from '../shared/types';
-import { ensureErrorMessage } from '../shared/utils';
+import { buildMarkdownFilename, ensureErrorMessage, formatConversationAsMarkdown } from '../shared/utils';
 import {
   clearAllData,
   deleteConversation,
   exportAllData,
   getConversationDetail,
+  getConversationMessages,
   importAllData,
   listConversations,
   lookupConversationBySourceSessionId,
@@ -394,6 +397,20 @@ async function openSidePanelForActiveTab(): Promise<void> {
   });
 }
 
+async function exportConversationMarkdown(payload: ExportConversationMarkdownPayload): Promise<ExportConversationMarkdownResult> {
+  const detail = await getConversationDetail(payload.conversationId);
+
+  if (!detail) {
+    throw new Error('会话记录不存在。');
+  }
+
+  const messages = await getConversationMessages(payload.conversationId);
+  const markdown = formatConversationAsMarkdown(detail.conversation, messages);
+  const filename = buildMarkdownFilename(detail.conversation);
+
+  return { markdown, filename };
+}
+
 async function handleRuntimeCommand(
   command: RuntimeCommand,
   payload: unknown,
@@ -433,6 +450,8 @@ async function handleRuntimeCommand(
       return exportAllData();
     case 'IMPORT_DATA':
       return importAllData((payload as ImportDataPayload).backup);
+    case 'EXPORT_CONVERSATION_MARKDOWN':
+      return exportConversationMarkdown(payload as ExportConversationMarkdownPayload);
     default:
       throw new Error(`Unsupported runtime command: ${String(command)}`);
   }

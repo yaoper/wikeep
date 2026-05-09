@@ -6,9 +6,10 @@ import type {
   ConversationDetail,
   ConversationListItem,
   ExistingCaptureLookupResult,
-  Message
+  Message,
+  ParsedMessage
 } from '../shared/types';
-import { buildConversationId, normalizeText } from '../shared/utils';
+import { buildConversationId, normalizeText, stableHash } from '../shared/utils';
 import { getDb } from './db';
 
 const SCHEMA_VERSION = 3;
@@ -112,12 +113,40 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
     await messageStore.delete(messageId as Message['id']);
   }
 
+  const now = Date.now();
+
+  for (const parsed of snapshot.messages) {
+    const messageId = `${conversationId}:msg:${stableHash(`${conversationId}:${parsed.order}`)}`;
+    const content = normalizeText(parsed.content);
+
+    if (!content) {
+      continue;
+    }
+
+    const message: Message = {
+      id: messageId,
+      conversationId,
+      role: parsed.role,
+      content,
+      contentHash: stableHash(content),
+      order: parsed.order,
+      externalId: parsed.externalId,
+      sourceNodeKey: parsed.sourceNodeKey,
+      metadata: parsed.metadata,
+      createdAt: now,
+      updatedAt: now,
+      schemaVersion: SCHEMA_VERSION
+    };
+
+    await messageStore.put(message);
+  }
+
   await conversationStore.put(conversation);
   await transaction.done;
 
   return {
     conversationId,
-    messageCount: question ? 1 : 0
+    messageCount: snapshot.messages.length
   };
 }
 
@@ -161,6 +190,12 @@ export async function lookupConversationBySourceSessionId(
     updatedAt: conversation.updatedAt,
     repoNames: conversation.metadata?.repoNames
   };
+}
+
+export async function getConversationMessages(conversationId: string): Promise<Message[]> {
+  const db = await getDb();
+  const records = await db.getAllFromIndex('messages', 'by-conversationId', conversationId);
+  return (records as Message[]).sort((a, b) => a.order - b.order);
 }
 
 export async function getConversationDetail(conversationId: string): Promise<ConversationDetail | null> {

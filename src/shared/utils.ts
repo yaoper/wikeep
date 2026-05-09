@@ -1,3 +1,4 @@
+import type { Conversation, Message } from './types';
 import type { RuntimeCommand, RuntimeResponse } from './messages';
 
 export function normalizeText(value: string): string {
@@ -55,6 +56,64 @@ export function ensureErrorMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  user: 'User',
+  assistant: 'Assistant',
+  system: 'System',
+  unknown: 'Unknown'
+};
+
+function sanitizeFilename(text: string): string {
+  return text
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 50) || 'session';
+}
+
+export function formatConversationAsMarkdown(conversation: Conversation, messages: Message[]): string {
+  const lines: string[] = [];
+  const question = normalizeText(conversation.question) || '未识别问题';
+  const repoNames = conversation.metadata?.repoNames ?? [];
+
+  lines.push(`# ${question}`);
+  lines.push('');
+
+  if (repoNames.length > 0) {
+    lines.push(`- **仓库**: ${repoNames.join(', ')}`);
+  }
+
+  lines.push(`- **来源**: ${conversation.sourceUrl}`);
+  lines.push(`- **保存时间**: ${new Date(conversation.updatedAt).toLocaleString('zh-CN')}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  for (const message of messages) {
+    const role = ROLE_LABELS[message.role] ?? message.role;
+    const content = normalizeText(message.content);
+
+    if (!content) {
+      continue;
+    }
+
+    lines.push(`## ${role}`);
+    lines.push('');
+    lines.push(content);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+export function buildMarkdownFilename(conversation: Conversation): string {
+  const question = normalizeText(conversation.question) || 'session';
+  const date = new Date(conversation.updatedAt).toISOString().slice(0, 10);
+  return `wikeep-${sanitizeFilename(question)}-${date}.md`;
 }
 
 export async function sendRuntimeMessage<TResponse, TPayload = unknown>(

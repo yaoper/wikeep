@@ -10,6 +10,7 @@ import type {
   ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
   DeleteConversationPayload,
+  ExportConversationMarkdownResult,
   ExportDataResult,
   ImportDataPayload,
   ImportDataResult,
@@ -358,6 +359,27 @@ export function SidePanelApp() {
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleExportMarkdown(conversationId: string) {
+    setErrorMessage(null);
+
+    try {
+      const result = await sendRuntimeMessage<ExportConversationMarkdownResult, { conversationId: string }>(
+        'EXPORT_CONVERSATION_MARKDOWN',
+        { conversationId }
+      );
+      const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setInfoMessage('已导出 Markdown 文件');
+    } catch (error) {
+      setErrorMessage(`导出失败：${ensureErrorMessage(error)}`);
     }
   }
 
@@ -724,6 +746,7 @@ export function SidePanelApp() {
                   onDelete={(id) => void handleDeleteConversation(id)}
                   onCopyUrl={(url) => void handleCopySourceUrl(url)}
                   onOpenUrl={(url) => window.open(url, '_blank')}
+                  onExportMarkdown={(id) => void handleExportMarkdown(id)}
                 />
               </>
             )}

@@ -23,7 +23,8 @@ export type RuntimeCommand =
   | 'GET_PAGE_STATUS'
   | 'TRIGGER_RECAPTURE'
   | 'EXPORT_DATA'
-  | 'IMPORT_DATA';
+  | 'IMPORT_DATA'
+  | 'EXPORT_CONVERSATION_MARKDOWN';
 
 export interface RuntimeRequest<TPayload = unknown> {
   command: RuntimeCommand;
@@ -88,4 +89,13 @@ export interface ImportDataPayload {
 export interface ImportDataResult {
   conversationCount: number;
   messageCount: number;
+}
+
+export interface ExportConversationMarkdownPayload {
+  conversationId: string;
+}
+
+export interface ExportConversationMarkdownResult {
+  markdown: string;
+  filename: string;
 }
