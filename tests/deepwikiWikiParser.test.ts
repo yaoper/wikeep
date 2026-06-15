@@ -26,6 +26,33 @@ const PROSE = `
     <a href="/facebook/react/2-core-reconciler-architecture">Core</a>
   </div>`;
 
+const REPOSITORY_OVERVIEW = `
+  <div class="prose prose-invert">
+    <h1>React Repository Overview</h1>
+    <details>
+      <summary>Relevant source files</summary>
+      <ul>
+        <li><a href="https://github.com/facebook/react/blob/bf76955e/README.md?plain=1">README.md</a></li>
+        <li><a href="https://github.com/facebook/react/blob/bf76955e/package.json">package.json</a></li>
+      </ul>
+    </details>
+    <hr />
+    <p>The React repository is a monorepo containing the core React library, its renderers like React DOM and React Native, developer tools, the React Compiler, and various related packages. Its primary purpose is to provide a unified development environment for all parts of the React ecosystem.</p>
+    <p>The repository is organized into several major subsystems:</p>
+    <ul>
+      <li><strong>Core React Packages</strong>: react, react-reconciler, and scheduler.</li>
+      <li><strong>Renderers</strong>: react-dom, react-native, react-art, and react-test-renderer.</li>
+      <li><strong>React Compiler</strong>: compile-time transformations for React components.</li>
+    </ul>
+    <p>This page offers a high-level introduction to the monorepo's purposes, major subsystems, package layout, and their relationships.</p>
+    <p>Sources: <a href="https://github.com/facebook/react/blob/bf76955e/package.json#L1-L5">package.json</a> <a href="https://github.com/facebook/react/blob/bf76955e/README.md?plain=1#L1-L79">README.md</a></p>
+    <hr />
+    <h2>Repository Structure and Packages</h2>
+    <p>This child-page summary must not be saved with the unique overview page.</p>
+    <h2>Build System and Tooling</h2>
+    <p>This second child-page summary must not be saved either.</p>
+  </div>`;
+
 describe("parseWikiPage", () => {
   beforeEach(() =>
     loadDom(
@@ -75,6 +102,24 @@ describe("parseWikiPage", () => {
     expect(snap?.markdown).toContain("```mermaid");
     expect(snap?.markdown).not.toContain("Glossary content");
     expect(snap?.markdown).not.toContain("Build content");
+  });
+
+  it("keeps repository overview body and trims embedded child summaries from DOM fallback", () => {
+    loadDom(
+      REPOSITORY_OVERVIEW,
+      "https://deepwiki.com/facebook/react/1-react-repository-overview",
+    );
+
+    const snap = parseWikiPage(document, location.href);
+
+    expect(snap?.title).toBe("React Repository Overview");
+    expect(snap?.markdownSource).toBe("dom");
+    expect(snap?.markdown).toContain("Relevant source files");
+    expect(snap?.markdown).toContain("The React repository is a monorepo");
+    expect(snap?.markdown).toContain("Core React Packages");
+    expect(snap?.markdown).toContain("Sources:");
+    expect(snap?.markdown).not.toContain("This child-page summary must not be saved");
+    expect(snap?.markdown).not.toContain("This second child-page summary");
   });
 
   it("fingerprint matches parse hash for identical content", () => {
