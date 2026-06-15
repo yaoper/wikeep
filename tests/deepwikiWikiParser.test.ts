@@ -51,6 +51,32 @@ describe("parseWikiPage", () => {
     expect(snap?.contentHash).toMatch(/^[0-9a-f]+$/);
   });
 
+  it("uses only the matching RSC page markdown when available", () => {
+    const repeated = "This page section contains the source markdown for one page only. ".repeat(8);
+    const rscRaw = [
+      "# Glossary",
+      "Glossary content that must not be saved with this page.",
+      "# Repository Structure and Packages",
+      repeated,
+      "## Package layout",
+      "The React repository is split into packages and shared tooling.",
+      "```mermaid",
+      "graph TD",
+      "  packages --> tooling",
+      "```",
+      "# Build System and Tooling",
+      "Build content that belongs to another page.",
+    ].join("\\n");
+
+    const snap = parseWikiPage(document, location.href, rscRaw);
+
+    expect(snap?.markdownSource).toBe("rsc");
+    expect(snap?.markdown).toContain("# Repository Structure and Packages");
+    expect(snap?.markdown).toContain("```mermaid");
+    expect(snap?.markdown).not.toContain("Glossary content");
+    expect(snap?.markdown).not.toContain("Build content");
+  });
+
   it("fingerprint matches parse hash for identical content", () => {
     const fp = fingerprintWikiPage(document, location.href);
     const snap = parseWikiPage(document, location.href);
