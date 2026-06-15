@@ -57,11 +57,16 @@ function ExportIcon() {
   );
 }
 
+function getPageLabel(item: WikiPage): string {
+  if (item.kind === 'full-wiki') return 'full wiki';
+  return item.sectionPath ?? 'overview';
+}
+
 export function WikiPageList({ items, onDelete, onCopyUrl, onOpenUrl, onExportMarkdown }: WikiPageListProps) {
   return (
     <div className="card-list">
       {items.map((item) => {
-        const label = item.sectionPath ?? 'overview';
+        const label = getPageLabel(item);
 
         return (
           <div key={item.id} className="card">
