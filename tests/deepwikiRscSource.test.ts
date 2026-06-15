@@ -59,7 +59,7 @@ describe("extractWikiMarkdownFromRsc", () => {
     expect(md).not.toContain("Build content");
   });
 
-  it("keeps overview text when an early divider follows relevant source files", () => {
+  it("keeps the full visible repository overview page, including child-summary sections", () => {
     const overviewBody =
       "The React repository is a monorepo containing the core React library, renderers, developer tools, compiler, supporting packages, coordinated releases, and cross-package optimizations. ".repeat(6);
     const raw = [
@@ -70,10 +70,12 @@ describe("extractWikiMarkdownFromRsc", () => {
       "Sources: package.json and README.md",
       "---",
       "## Repository Structure and Packages",
-      "This child-page summary must not be included in the unique overview export.",
+      "This child-page summary is visible on the current overview page and should stay.",
       "---",
       "## Build System and Tooling",
-      "Another child-page summary must not be included either.",
+      "Another visible subsection should also stay.",
+      "# Glossary",
+      "The next top-level wiki page must not be included.",
     ].join("\\n");
 
     const md = extractWikiMarkdownFromRsc(raw, {
@@ -85,35 +87,9 @@ describe("extractWikiMarkdownFromRsc", () => {
     expect(md).toContain("Relevant source files");
     expect(md).toContain("The React repository is a monorepo");
     expect(md).toContain("Sources: package.json and README.md");
-    expect(md).not.toContain("Repository Structure and Packages");
-    expect(md).not.toContain("Build System and Tooling");
-  });
-
-  it("trims repository overview pages before embedded child-page summaries", () => {
-    const overviewBody =
-      "High-level React repository overview content for the active page. ".repeat(8);
-    const raw = [
-      "# React Repository Overview",
-      overviewBody,
-      "Sources: package.json and README.md",
-      "---",
-      "## Repository Structure and Packages",
-      "This child-page summary must not be included in the unique overview export.",
-      "---",
-      "## Build System and Tooling",
-      "Another child-page summary must not be included either.",
-    ].join("\\n");
-
-    const md = extractWikiMarkdownFromRsc(raw, {
-      title: "React Repository Overview",
-      sectionPath: "1-react-repository-overview",
-    });
-
-    expect(md).toMatch(/^# React Repository Overview/m);
-    expect(md).toContain("High-level React repository overview content");
-    expect(md).toContain("Sources: package.json and README.md");
-    expect(md).not.toContain("Repository Structure and Packages");
-    expect(md).not.toContain("Build System and Tooling");
+    expect(md).toContain("Repository Structure and Packages");
+    expect(md).toContain("Build System and Tooling");
+    expect(md).not.toContain("The next top-level wiki page must not be included");
   });
 
   it("can intentionally extract the full wiki bundle", () => {
