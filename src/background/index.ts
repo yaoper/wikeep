@@ -4,7 +4,6 @@ import {
   fetchDeepWikiSession,
 } from "../api/deepwikiApi";
 import type { DeepWikiQuerySession } from "../api/deepwikiTypes";
-import { MAX_POLL_ATTEMPTS, PENDING_POLL_MS } from "../shared/constants";
 import type {
   ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
@@ -27,6 +26,7 @@ import type {
   RuntimeCommand,
   RuntimeRequest,
   RuntimeResponse,
+  SaveFullWikiPayload,
   SaveWikiPagePayload,
   SaveWikiPageResult,
   UpdateSettingsPayload,
@@ -77,63 +77,10 @@ import {
 import { isWikiPageUrl } from "../shared/wikiUrl";
 
 const tabStatusCache = new Map<number, CaptureStatus>();
-const backgroundCaptureTimers = new Map<
-  number,
-  ReturnType<typeof setInterval>
->();
-const backgroundCaptureAttempts = new Map<number, number>();
-const backgroundCaptureInFlight = new Set<number>();
 const wikiPageStateCache = new Map<number, WikiPageTabState>();
 
 function getDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
-}
-
-async function clearActionBadgeForTab(tabId: number): Promise<void> {
-  await chrome.action.setBadgeText({
-    tabId,
-    text: "",
-  });
-  await chrome.action.setTitle({
-    tabId,
-    title: "Wikeep",
-  });
-}
-
-async function cacheTabStatus(
-  tabId: number,
-  url: string | undefined,
-  status?: CaptureStatus | null,
-): Promise<void> {
-  if (status) {
-    tabStatusCache.set(tabId, status);
-  } else {
-    tabStatusCache.delete(tabId);
-  }
-}
-
-function stopBackgroundCapturePolling(tabId: number): void {
-  const timer = backgroundCaptureTimers.get(tabId);
-
-  if (timer) {
-    clearInterval(timer);
-    backgroundCaptureTimers.delete(tabId);
-  }
-
-  backgroundCaptureAttempts.delete(tabId);
-}
-
-async function clearActiveTabBadge(): Promise<void> {
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true,
-  });
-
-  if (!tab?.id) {
-    return;
-  }
-
-  await clearActionBadgeForTab(tab.id);
 }
 
 async function notifyActiveTabContextChanged(): Promise<void> {
@@ -154,9 +101,7 @@ async function notifyActiveTabContextChanged(): Promise<void> {
 async function notifyIfActiveTabChanged(
   tabId: number | undefined,
 ): Promise<void> {
-  if (!tabId) {
-    return;
-  }
+  if (!tabId) return;
 
   const [tab] = await chrome.tabs.query({
     active: true,
@@ -168,144 +113,33 @@ async function notifyIfActiveTabChanged(
   }
 }
 
-async function runBackgroundFallbackCapture(
+async function cacheTabStatus(
   tabId: number,
-  sourceUrl: string,
-  queryId: string,
+  _url: string | undefined,
+  status?: CaptureStatus | null,
 ): Promise<void> {
-  if (backgroundCaptureInFlight.has(tabId)) {
-    return;
-  }
-
-  backgroundCaptureInFlight.add(tabId);
-
-  try {
-    const settings = await getSettings();
-
-    if (!settings.autoCaptureEnabled) {
-      stopBackgroundCapturePolling(tabId);
-      await cacheTabStatus(tabId, sourceUrl, {
-        supported: true,
-        active: false,
-        queryId,
-        sourceUrl,
-        pending: false,
-        reason: "auto_capture_disabled",
-      });
-      await notifyIfActiveTabChanged(tabId);
-      return;
-    }
-
-    const existingCapture = await lookupConversationBySourceSessionId(queryId);
-
-    if (existingCapture.exists) {
-      stopBackgroundCapturePolling(tabId);
-      await cacheTabStatus(tabId, sourceUrl, {
-        supported: true,
-        active: false,
-        queryId,
-        sourceUrl,
-        pending: false,
-        reason: "already_saved",
-        existingConversationId: existingCapture.conversationId,
-        lastCapturedAt: existingCapture.updatedAt,
-        repoNames: existingCapture.repoNames,
-      });
-      await notifyIfActiveTabChanged(tabId);
-      return;
-    }
-
-    const result = await captureViaApi({
-      queryId,
-      sourceUrl,
-      tabId,
-    });
-
-    if (!result.pending) {
-      stopBackgroundCapturePolling(tabId);
-    }
-  } catch (error) {
-    stopBackgroundCapturePolling(tabId);
-    await cacheTabStatus(tabId, sourceUrl, {
-      supported: true,
-      active: false,
-      queryId,
-      sourceUrl,
-      pending: false,
-      reason: "api_fetch_failed",
-      errorMessage: ensureErrorMessage(error),
-    });
-    await notifyIfActiveTabChanged(tabId);
-  } finally {
-    backgroundCaptureInFlight.delete(tabId);
+  if (status) {
+    tabStatusCache.set(tabId, status);
+  } else {
+    tabStatusCache.delete(tabId);
   }
 }
 
-function startBackgroundCapturePolling(
-  tabId: number,
-  sourceUrl: string,
-  queryId: string,
-): void {
-  if (backgroundCaptureTimers.has(tabId)) {
-    return;
-  }
-
-  backgroundCaptureAttempts.set(tabId, 0);
-
-  const timer = setInterval(() => {
-    const attempts = (backgroundCaptureAttempts.get(tabId) ?? 0) + 1;
-    backgroundCaptureAttempts.set(tabId, attempts);
-
-    if (attempts > MAX_POLL_ATTEMPTS) {
-      stopBackgroundCapturePolling(tabId);
-      return;
-    }
-
-    void runBackgroundFallbackCapture(tabId, sourceUrl, queryId);
-  }, PENDING_POLL_MS);
-
-  backgroundCaptureTimers.set(tabId, timer);
-}
-
-async function ensureActiveTabCaptureProgress(): Promise<void> {
+async function clearActiveTabBadge(): Promise<void> {
   const [tab] = await chrome.tabs.query({
     active: true,
     currentWindow: true,
   });
 
-  if (!tab?.id || !tab.url) {
-    return;
-  }
+  if (!tab?.id) return;
 
-  const queryId = extractQueryIdFromUrl(tab.url);
-
-  if (!queryId) {
-    stopBackgroundCapturePolling(tab.id);
-    return;
-  }
-
-  const status = await getPageStatus(tab.id);
-
-  if (status) {
-    return;
-  }
-
-  await cacheTabStatus(tab.id, tab.url, {
-    supported: true,
-    active: true,
-    queryId,
-    sourceUrl: tab.url,
-    pending: true,
-    reason: "idle",
-  });
-  await notifyIfActiveTabChanged(tab.id);
-  await runBackgroundFallbackCapture(tab.id, tab.url, queryId);
+  await chrome.action.setBadgeText({ tabId: tab.id, text: "" });
+  await chrome.action.setTitle({ tabId: tab.id, title: "Wikeep" });
 }
 
 async function handleActiveTabChange(): Promise<void> {
   await clearActiveTabBadge();
   await notifyActiveTabContextChanged();
-  await ensureActiveTabCaptureProgress();
 }
 
 async function reportPageStatus(
@@ -313,14 +147,7 @@ async function reportPageStatus(
   payload: ReportPageStatusPayload,
 ): Promise<void> {
   const tabId = sender.tab?.id;
-
-  if (!tabId) {
-    return;
-  }
-
-  if (payload.status.reason !== "idle") {
-    stopBackgroundCapturePolling(tabId);
-  }
+  if (!tabId) return;
 
   await cacheTabStatus(tabId, sender.tab?.url, payload.status);
   await notifyIfActiveTabChanged(tabId);
@@ -372,16 +199,6 @@ async function captureViaApi(
       performance: response.performance,
     });
     await notifyIfActiveTabChanged(payload.tabId);
-
-    if (pending) {
-      startBackgroundCapturePolling(
-        payload.tabId,
-        payload.sourceUrl,
-        payload.queryId,
-      );
-    } else {
-      stopBackgroundCapturePolling(payload.tabId);
-    }
   }
 
   return response;
@@ -442,11 +259,12 @@ async function emitWikiPageStateChanged(
   await notifyIfActiveTabChanged(tabId);
 }
 
-async function requestWikiPageSnapshot(
+async function requestWikiSnapshot(
   tabId: number,
+  command: "GET_WIKI_PAGE_SNAPSHOT" | "GET_FULL_WIKI_SNAPSHOT",
 ): Promise<GetWikiPageSnapshotResult["snapshot"]> {
   const response = (await chrome.tabs.sendMessage(tabId, {
-    command: "GET_WIKI_PAGE_SNAPSHOT",
+    command,
   } satisfies RuntimeRequest)) as RuntimeResponse<GetWikiPageSnapshotResult>;
 
   if (!response.ok) {
@@ -464,7 +282,8 @@ async function saveWikiPage(
 ): Promise<SaveWikiPageResult> {
   const tabId = payload.tabId;
   const snapshot =
-    payload.snapshot ?? (tabId ? await requestWikiPageSnapshot(tabId) : null);
+    payload.snapshot ??
+    (tabId ? await requestWikiSnapshot(tabId, "GET_WIKI_PAGE_SNAPSHOT") : null);
 
   if (!snapshot) {
     throw new Error("Wiki page is not ready to save yet.");
@@ -483,6 +302,30 @@ async function saveWikiPage(
       ),
     );
   }
+
+  return {
+    pageId: result.pageId,
+    changed: result.changed,
+    created: result.created,
+    title: snapshot.title,
+  };
+}
+
+async function saveFullWiki(
+  payload: SaveFullWikiPayload,
+): Promise<SaveWikiPageResult> {
+  const tabId = payload.tabId;
+  const snapshot =
+    payload.snapshot ??
+    (tabId ? await requestWikiSnapshot(tabId, "GET_FULL_WIKI_SNAPSHOT") : null);
+
+  if (!snapshot) {
+    throw new Error(
+      "Full wiki source is not ready. Reload the DeepWiki page and try again.",
+    );
+  }
+
+  const result = await upsertWikiPage(snapshot);
 
   return {
     pageId: result.pageId,
@@ -747,6 +590,12 @@ async function handleRuntimeCommand(
         tabId:
           (payload as SaveWikiPagePayload | undefined)?.tabId ?? sender.tab?.id,
       });
+    case "SAVE_FULL_WIKI":
+      return saveFullWiki({
+        ...(payload as SaveFullWikiPayload),
+        tabId:
+          (payload as SaveFullWikiPayload | undefined)?.tabId ?? sender.tab?.id,
+      });
     case "LIST_WIKI_PAGES":
       return listWikiPages(
         (payload as ListWikiPagesPayload | undefined)?.keyword,
@@ -809,7 +658,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabStatusCache.delete(tabId);
   wikiPageStateCache.delete(tabId);
-  stopBackgroundCapturePolling(tabId);
 });
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
