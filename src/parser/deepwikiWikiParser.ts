@@ -1,8 +1,13 @@
 import type { WikiPageSnapshot } from "../shared/types";
 import { normalizeText, stableHash } from "../shared/utils";
 import { parseWikiUrl } from "../shared/wikiUrl";
-import { extractWikiMarkdownFromRsc } from "./deepwikiRscSource";
+import {
+  extractFullWikiMarkdownFromRsc,
+  extractWikiMarkdownFromRsc,
+} from "./deepwikiRscSource";
 import { elementToMarkdown } from "./htmlToMarkdown";
+
+const FULL_WIKI_SECTION_PATH = "__full-wiki";
 
 function getElementText(element: HTMLElement): string {
   return element.innerText || element.textContent || "";
@@ -104,6 +109,10 @@ function extractToc(document: Document, owner: string, repo: string): string[] {
   return Array.from(new Set(hrefs));
 }
 
+function buildFullWikiUrl(owner: string, repo: string): string {
+  return `https://deepwiki.com/${owner}/${repo}#wikeep-full-wiki`;
+}
+
 export function parseWikiPage(
   document: Document,
   url: string,
@@ -136,6 +145,7 @@ export function parseWikiPage(
     url,
     owner: parts.owner,
     repo: parts.repo,
+    kind: "page",
     sectionPath: parts.sectionPath,
     title,
     markdown,
@@ -147,6 +157,41 @@ export function parseWikiPage(
     hasDiagrams:
       /```mermaid/.test(markdown) ||
       /data-wikeep-diagram/.test(sanitized.innerHTML),
+    capturedAt: Date.now(),
+  };
+}
+
+export function parseFullWiki(
+  document: Document,
+  url: string,
+  rscRaw?: string | null,
+): WikiPageSnapshot | null {
+  const parts = parseWikiUrl(url);
+  if (!parts || !rscRaw) return null;
+
+  const root = findContentRoot(document);
+  if (!root) return null;
+
+  const markdown = extractFullWikiMarkdownFromRsc(rscRaw);
+  if (!markdown) return null;
+
+  const repoFullName = `${parts.owner}/${parts.repo}`;
+  const normalizedMarkdown = normalizeText(markdown);
+
+  return {
+    url: buildFullWikiUrl(parts.owner, parts.repo),
+    owner: parts.owner,
+    repo: parts.repo,
+    kind: "full-wiki",
+    sectionPath: FULL_WIKI_SECTION_PATH,
+    title: `${repoFullName} Full Wiki`,
+    markdown: normalizedMarkdown,
+    markdownSource: "rsc",
+    contentHash: stableHash(normalizedMarkdown),
+    indexedCommit: extractIndexedCommit(root),
+    relatedSections: extractToc(document, parts.owner, parts.repo),
+    wordCount: normalizedMarkdown.split(/\s+/).filter(Boolean).length,
+    hasDiagrams: /```mermaid/.test(normalizedMarkdown),
     capturedAt: Date.now(),
   };
 }
