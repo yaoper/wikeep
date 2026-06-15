@@ -135,10 +135,12 @@ export interface CaptureStatus {
 export type DeepWikiRouteKind = "session" | "wiki" | "other";
 
 export type WikiMarkdownSource = "rsc" | "dom";
+export type WikiPageKind = "page" | "full-wiki";
 
 export interface WikiPage {
   id: string;
   source: "deepwiki-wiki";
+  kind?: WikiPageKind;
   owner: string;
   repo: string;
   repoFullName: string;
@@ -163,6 +165,7 @@ export interface WikiPageSnapshot {
   url: string;
   owner: string;
   repo: string;
+  kind?: WikiPageKind;
   sectionPath?: string;
   title: string;
   markdown: string;
