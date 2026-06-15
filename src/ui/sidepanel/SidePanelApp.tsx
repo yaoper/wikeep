@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { SearchBox } from "../components/SearchBox";
 import { ConversationList } from "../components/ConversationList";
 import { EmptyState } from "../components/EmptyState";
@@ -29,6 +29,8 @@ import type {
   ListWikiPagesPayload,
   RuntimeRequest,
   RuntimeResponse,
+  SaveFullWikiPayload,
+  SaveWikiPagePayload,
   SaveWikiPageResult,
   UpdateSettingsPayload,
   WikiPageStateChangedPayload,
@@ -37,25 +39,13 @@ import type {
 type View = "history" | "settings" | "backup";
 type StatusTone = "saved" | "pending" | "unknown";
 
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} d ago`;
-  return new Date(timestamp).toLocaleDateString("en-US");
-}
-
 function isStatusPending(context: ActiveTabContext | null): boolean {
   const status = context?.status;
   return Boolean(
     status?.pending ||
-    (status?.active && !status?.method) ||
-    status?.reason === "dom_not_ready" ||
-    status?.reason === "idle",
+      (status?.active && !status?.method) ||
+      status?.reason === "dom_not_ready" ||
+      status?.reason === "idle",
   );
 }
 
@@ -68,19 +58,14 @@ function getWikiStatusTone(wikiState?: WikiPageTabState): StatusTone {
 }
 
 function getStatusTone(context: ActiveTabContext | null): StatusTone {
-  if (!context?.supported) {
-    return "unknown";
-  }
+  if (!context?.supported) return "unknown";
 
   if (context.routeKind === "wiki") {
     return getWikiStatusTone(context.wikiState);
   }
 
   const status = context.status;
-
-  if (isStatusPending(context)) {
-    return "pending";
-  }
+  if (isStatusPending(context)) return "pending";
 
   if (
     status?.method === "api" ||
@@ -96,12 +81,14 @@ function getStatusTone(context: ActiveTabContext | null): StatusTone {
 
 function getStatusTitle(context: ActiveTabContext | null): string {
   if (!context?.supported) return "Not a DeepWiki page";
+
   if (context.routeKind === "wiki") {
     if (context.wikiState?.state === "saved_fresh") return "Wiki page saved";
     if (context.wikiState?.state === "saved_stale") return "Wiki page changed";
     if (context.wikiState?.state === "updated") return "Wiki page updated";
     return "Wiki page not saved";
   }
+
   if (context.status?.reason === "auto_capture_disabled")
     return "Auto-save is off";
   if (isStatusPending(context)) return "Saving session…";
@@ -119,16 +106,19 @@ function getStatusTitle(context: ActiveTabContext | null): string {
 function getStatusSubtitle(context: ActiveTabContext | null): string {
   if (!context?.supported)
     return "Switch to DeepWiki to save a session or wiki page";
+
   if (context.routeKind === "wiki") {
     if (context.wikiState?.state === "saved_stale")
       return "Saved before, but this page now has newer content.";
     if (
       context.wikiState?.state === "saved_fresh" ||
       context.wikiState?.state === "updated"
-    )
+    ) {
       return "";
-    return "Save this DeepWiki wiki page as Markdown.";
+    }
+    return "Save only this page, or save the full repository wiki.";
   }
+
   if (context.status?.reason === "auto_capture_disabled")
     return "Save this page manually using the action on the right";
   if (context.status?.reason === "storage_error")
@@ -153,9 +143,7 @@ function getStatusSubtitle(context: ActiveTabContext | null): string {
 }
 
 function getStatusActionLabel(context: ActiveTabContext | null): string | null {
-  if (!context?.supported) {
-    return null;
-  }
+  if (!context?.supported) return null;
 
   if (context.routeKind === "wiki") {
     return context.wikiState?.state === "saved_stale" ? "Refresh" : "Save page";
@@ -172,14 +160,7 @@ function getStatusActionLabel(context: ActiveTabContext | null): string | null {
 }
 
 function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
-  if (!context?.supported) {
-    return false;
-  }
-
-  if (context.routeKind === "wiki") {
-    return false;
-  }
-
+  if (!context?.supported || context.routeKind === "wiki") return false;
   return (
     isStatusPending(context) ||
     !context.status ||
@@ -266,28 +247,7 @@ export function SidePanelApp() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      if (!options?.silent) {
-        setLoading(false);
-      }
-    }
-  }
-
-  async function loadActiveContext(options?: { silent?: boolean }) {
-    if (!options?.silent) {
-      setContextLoading(true);
-    }
-
-    try {
-      const nextContext = await sendRuntimeMessage<ActiveTabContext>(
-        "GET_ACTIVE_TAB_CONTEXT",
-      );
-      setActiveContext(nextContext);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (!options?.silent) {
-        setContextLoading(false);
-      }
+      if (!options?.silent) setLoading(false);
     }
   }
 
@@ -298,15 +258,28 @@ export function SidePanelApp() {
     try {
       const items = await sendRuntimeMessage<WikiPage[], ListWikiPagesPayload>(
         "LIST_WIKI_PAGES",
-        {
-          keyword: nextKeyword,
-        },
+        { keyword: nextKeyword },
       );
       setWikiPages(items);
     } catch (error) {
       if (!options?.silent) {
         setErrorMessage(error instanceof Error ? error.message : String(error));
       }
+    }
+  }
+
+  async function loadActiveContext(options?: { silent?: boolean }) {
+    if (!options?.silent) setContextLoading(true);
+
+    try {
+      const nextContext = await sendRuntimeMessage<ActiveTabContext>(
+        "GET_ACTIVE_TAB_CONTEXT",
+      );
+      setActiveContext(nextContext);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (!options?.silent) setContextLoading(false);
     }
   }
 
@@ -333,9 +306,7 @@ export function SidePanelApp() {
   }, []);
 
   useEffect(() => {
-    if (view === "settings") {
-      void loadSettings();
-    }
+    if (view === "settings") void loadSettings();
   }, [view]);
 
   useEffect(() => {
@@ -350,9 +321,7 @@ export function SidePanelApp() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!shouldAutoRefreshContext(activeContext)) {
-      return;
-    }
+    if (!shouldAutoRefreshContext(activeContext)) return;
 
     const timer = window.setInterval(() => {
       void loadActiveContext({ silent: true });
@@ -377,9 +346,7 @@ export function SidePanelApp() {
           | ActiveTabContextChangedPayload
           | undefined;
 
-        if (!payload?.context) {
-          return;
-        }
+        if (!payload?.context) return;
 
         setContextLoading(false);
         setActiveContext(payload.context);
@@ -390,9 +357,7 @@ export function SidePanelApp() {
         const payload = request.payload as
           | WikiPageStateChangedPayload
           | undefined;
-        if (!payload) {
-          return;
-        }
+        if (!payload) return;
 
         setActiveContext((current) => {
           if (
@@ -418,9 +383,7 @@ export function SidePanelApp() {
   }, [activeContext?.status?.lastCapturedAt, debouncedKeyword]);
 
   useEffect(() => {
-    if (!infoMessage) {
-      return;
-    }
+    if (!infoMessage) return;
 
     const timer = window.setTimeout(() => {
       setInfoMessage(null);
@@ -435,9 +398,7 @@ export function SidePanelApp() {
   }
 
   async function handleDeleteConversation(conversationId: string) {
-    if (!window.confirm("Delete this record? This cannot be undone.")) {
-      return;
-    }
+    if (!window.confirm("Delete this record? This cannot be undone.")) return;
 
     setInfoMessage(null);
     await sendRuntimeMessage<void, DeleteConversationPayload>(
@@ -445,17 +406,6 @@ export function SidePanelApp() {
       { conversationId },
     );
     await loadConversations(debouncedKeyword);
-  }
-
-  async function handleClearAllData() {
-    if (!window.confirm("Clear all locally saved data?")) {
-      return;
-    }
-
-    setInfoMessage(null);
-    await sendRuntimeMessage("CLEAR_ALL_DATA");
-    await loadConversations(debouncedKeyword);
-    await loadWikiPages(debouncedKeyword, { silent: true });
   }
 
   async function handleDeleteWikiPage(pageId: string) {
@@ -470,10 +420,17 @@ export function SidePanelApp() {
     await loadWikiPages(debouncedKeyword);
   }
 
+  async function handleClearAllData() {
+    if (!window.confirm("Clear all locally saved data?")) return;
+
+    setInfoMessage(null);
+    await sendRuntimeMessage("CLEAR_ALL_DATA");
+    await loadConversations(debouncedKeyword);
+    await loadWikiPages(debouncedKeyword, { silent: true });
+  }
+
   async function handleToggleAutoCapture() {
-    if (!settings) {
-      return;
-    }
+    if (!settings) return;
 
     const nextSettings = await sendRuntimeMessage<
       Settings,
@@ -486,9 +443,7 @@ export function SidePanelApp() {
   }
 
   async function handleToggleAutoRefreshWikiPages() {
-    if (!settings) {
-      return;
-    }
+    if (!settings) return;
 
     const nextSettings = await sendRuntimeMessage<
       Settings,
@@ -502,11 +457,21 @@ export function SidePanelApp() {
   async function handleCopySourceUrl(sourceUrl: string) {
     try {
       await navigator.clipboard.writeText(sourceUrl);
-      setInfoMessage("Session URL copied to clipboard");
+      setInfoMessage("Source URL copied to clipboard");
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  function downloadMarkdown(markdown: string, filename: string): void {
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleExportMarkdown(conversationId: string) {
@@ -517,15 +482,7 @@ export function SidePanelApp() {
         ExportConversationMarkdownResult,
         { conversationId: string }
       >("EXPORT_CONVERSATION_MARKDOWN", { conversationId });
-      const blob = new Blob([result.markdown], {
-        type: "text/markdown;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = result.filename;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadMarkdown(result.markdown, result.filename);
       setInfoMessage("Markdown file exported");
     } catch (error) {
       setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
@@ -540,25 +497,40 @@ export function SidePanelApp() {
         ExportWikiPageMarkdownResult,
         { pageId: string }
       >("EXPORT_WIKI_PAGE_MARKDOWN", { pageId });
-      const blob = new Blob([result.markdown], {
-        type: "text/markdown;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = result.filename;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadMarkdown(result.markdown, result.filename);
       setInfoMessage("Wiki Markdown file exported");
     } catch (error) {
       setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
     }
   }
 
-  async function handleManualSave() {
-    if (!activeContext?.url) {
-      return;
+  async function handleSaveFullWiki() {
+    if (activeContext?.routeKind !== "wiki") return;
+
+    try {
+      setErrorMessage(null);
+      setInfoMessage(null);
+      const result = await sendRuntimeMessage<
+        SaveWikiPageResult,
+        SaveFullWikiPayload
+      >("SAVE_FULL_WIKI", {
+        tabId: activeContext.tabId,
+      });
+      setInfoMessage(
+        result.created
+          ? "Full wiki saved."
+          : result.changed
+            ? "Full wiki refreshed."
+            : "Full wiki saved again.",
+      );
+      await loadWikiPages(debouncedKeyword, { silent: true });
+    } catch (error) {
+      setErrorMessage(`Save full wiki failed: ${ensureErrorMessage(error)}`);
     }
+  }
+
+  async function handleManualSave() {
+    if (!activeContext?.url) return;
 
     if (activeContext.routeKind === "wiki") {
       const wikiUrl = activeContext.url;
@@ -567,7 +539,7 @@ export function SidePanelApp() {
         setInfoMessage(null);
         const result = await sendRuntimeMessage<
           SaveWikiPageResult,
-          { tabId?: number }
+          SaveWikiPagePayload
         >("SAVE_WIKI_PAGE", {
           tabId: activeContext.tabId,
         });
@@ -599,9 +571,7 @@ export function SidePanelApp() {
       }
     }
 
-    if (!activeContext.queryId) {
-      return;
-    }
+    if (!activeContext.queryId) return;
 
     setErrorMessage(null);
     setInfoMessage(null);
@@ -698,15 +668,11 @@ export function SidePanelApp() {
     }
   }
 
-  async function handleImportFileChange(
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) {
+  async function handleImportFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
 
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     setImportLoading(true);
     setErrorMessage(null);
@@ -763,6 +729,7 @@ export function SidePanelApp() {
         style={{ display: "none" }}
         onChange={(e) => void handleImportFileChange(e)}
       />
+
       <div
         className={
           showBack
@@ -812,20 +779,6 @@ export function SidePanelApp() {
                       setMenuOpen(false);
                     }}
                   >
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ marginRight: 6, flexShrink: 0 }}
-                    >
-                      <circle cx="8" cy="8" r="2.5" />
-                      <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
-                    </svg>
                     Settings
                   </button>
                   <button
@@ -836,22 +789,6 @@ export function SidePanelApp() {
                       setMenuOpen(false);
                     }}
                   >
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ marginRight: 6, flexShrink: 0 }}
-                    >
-                      <ellipse cx="8" cy="4" rx="6" ry="2" />
-                      <path d="M2 4v3c0 1.1 2.7 2 6 2s6-.9 6-2V4" />
-                      <path d="M2 7v3c0 1.1 2.7 2 6 2s6-.9 6-2V7" />
-                      <path d="M2 10v2c0 1.1 2.7 2 6 2s6-.9 6-2v-2" />
-                    </svg>
                     Backup & Restore
                   </button>
                 </div>
@@ -920,6 +857,16 @@ export function SidePanelApp() {
               onClick={() => void handleManualSave()}
             >
               {statusActionLabel}
+            </button>
+          ) : null}
+          {activeContext?.routeKind === "wiki" ? (
+            <button
+              type="button"
+              className="status-bar__action"
+              title="Save every page from this repository wiki"
+              onClick={() => void handleSaveFullWiki()}
+            >
+              Save full wiki
             </button>
           ) : null}
         </div>
