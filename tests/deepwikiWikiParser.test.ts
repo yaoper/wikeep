@@ -48,9 +48,9 @@ const REPOSITORY_OVERVIEW = `
     <p>Sources: <a href="https://github.com/facebook/react/blob/bf76955e/package.json#L1-L5">package.json</a> <a href="https://github.com/facebook/react/blob/bf76955e/README.md?plain=1#L1-L79">README.md</a></p>
     <hr />
     <h2>Repository Structure and Packages</h2>
-    <p>This child-page summary must not be saved with the unique overview page.</p>
+    <p>This visible child-summary section is part of the current overview page.</p>
     <h2>Build System and Tooling</h2>
-    <p>This second child-page summary must not be saved either.</p>
+    <p>This second visible section is also part of the current overview page.</p>
   </div>`;
 
 describe("parseWikiPage", () => {
@@ -104,7 +104,7 @@ describe("parseWikiPage", () => {
     expect(snap?.markdown).not.toContain("Build content");
   });
 
-  it("keeps repository overview body and trims embedded child summaries from DOM fallback", () => {
+  it("keeps full repository overview DOM page, including visible subsections", () => {
     loadDom(
       REPOSITORY_OVERVIEW,
       "https://deepwiki.com/facebook/react/1-react-repository-overview",
@@ -118,8 +118,10 @@ describe("parseWikiPage", () => {
     expect(snap?.markdown).toContain("The React repository is a monorepo");
     expect(snap?.markdown).toContain("Core React Packages");
     expect(snap?.markdown).toContain("Sources:");
-    expect(snap?.markdown).not.toContain("This child-page summary must not be saved");
-    expect(snap?.markdown).not.toContain("This second child-page summary");
+    expect(snap?.markdown).toContain("Repository Structure and Packages");
+    expect(snap?.markdown).toContain("Build System and Tooling");
+    expect(snap?.markdown).toContain("This visible child-summary section");
+    expect(snap?.markdown).toContain("This second visible section");
   });
 
   it("fingerprint matches parse hash for identical content", () => {
