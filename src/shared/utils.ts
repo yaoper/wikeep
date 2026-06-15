@@ -1,4 +1,4 @@
-import type { Conversation, Message } from "./types";
+import type { Conversation, Message, WikiPage } from "./types";
 import type { RuntimeCommand, RuntimeResponse } from "./messages";
 
 export function normalizeText(value: string): string {
@@ -133,6 +133,37 @@ export function buildMarkdownFilename(conversation: Conversation): string {
   const question = normalizeText(conversation.question) || "session";
   const date = new Date(conversation.updatedAt).toISOString().slice(0, 10);
   return `wikeep-${sanitizeFilename(question)}-${date}.md`;
+}
+
+export function formatWikiPageAsMarkdown(page: WikiPage): string {
+  const lines: string[] = [];
+  lines.push(`# ${normalizeText(page.title) || page.repoFullName}`);
+  lines.push("");
+  lines.push(`- **Repository**: ${page.repoFullName}`);
+  lines.push(`- **Source**: ${page.url}`);
+  if (page.sectionPath) {
+    lines.push(`- **Section**: ${page.sectionPath}`);
+  }
+  if (page.indexedCommit) {
+    lines.push(`- **Indexed commit**: ${page.indexedCommit}`);
+  }
+  lines.push(
+    `- **Saved at**: ${new Date(page.updatedAt).toLocaleString("en-US")}`,
+  );
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push(page.markdown.trim());
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function buildWikiPageMarkdownFilename(page: WikiPage): string {
+  const name = page.sectionPath
+    ? `${page.repoFullName}-${page.sectionPath}`
+    : page.repoFullName;
+  const date = new Date(page.updatedAt).toISOString().slice(0, 10);
+  return `wikeep-${sanitizeFilename(name)}-${date}.md`;
 }
 
 export function debounce<A extends unknown[]>(

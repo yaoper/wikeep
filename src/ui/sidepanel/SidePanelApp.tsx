@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
-import { SearchBox } from '../components/SearchBox';
-import { ConversationList } from '../components/ConversationList';
-import { EmptyState } from '../components/EmptyState';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { SEARCH_DEBOUNCE_MS } from '../../shared/constants';
-import type { ActiveTabContext, BackupData, CaptureResult, ConversationListItem, Settings } from '../../shared/types';
-import { ensureErrorMessage, sendRuntimeMessage } from '../../shared/utils';
+import { useEffect, useRef, useState } from "react";
+import { SearchBox } from "../components/SearchBox";
+import { ConversationList } from "../components/ConversationList";
+import { EmptyState } from "../components/EmptyState";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
+import type {
+  ActiveTabContext,
+  BackupData,
+  CaptureResult,
+  ConversationListItem,
+  Settings,
+  WikiPageTabState,
+} from "../../shared/types";
+import { ensureErrorMessage, sendRuntimeMessage } from "../../shared/utils";
 import type {
   ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
@@ -17,22 +24,24 @@ import type {
   ListConversationsPayload,
   RuntimeRequest,
   RuntimeResponse,
-  UpdateSettingsPayload
-} from '../../shared/messages';
+  SaveWikiPageResult,
+  UpdateSettingsPayload,
+  WikiPageStateChangedPayload,
+} from "../../shared/messages";
 
-type View = 'history' | 'settings' | 'backup';
-type StatusTone = 'saved' | 'pending' | 'unknown';
+type View = "history" | "settings" | "backup";
+type StatusTone = "saved" | "pending" | "unknown";
 
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
+  if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} hr ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days} d ago`;
-  return new Date(timestamp).toLocaleDateString('en-US');
+  return new Date(timestamp).toLocaleDateString("en-US");
 }
 
 function isStatusPending(context: ActiveTabContext | null): boolean {
@@ -40,69 +49,102 @@ function isStatusPending(context: ActiveTabContext | null): boolean {
   return Boolean(
     status?.pending ||
     (status?.active && !status?.method) ||
-    status?.reason === 'dom_not_ready' ||
-    status?.reason === 'idle'
+    status?.reason === "dom_not_ready" ||
+    status?.reason === "idle",
   );
+}
+
+function getWikiStatusTone(wikiState?: WikiPageTabState): StatusTone {
+  if (!wikiState) return "unknown";
+  if (wikiState.state === "saved_fresh" || wikiState.state === "updated")
+    return "saved";
+  if (wikiState.state === "saved_stale") return "pending";
+  return "unknown";
 }
 
 function getStatusTone(context: ActiveTabContext | null): StatusTone {
   if (!context?.supported) {
-    return 'unknown';
+    return "unknown";
+  }
+
+  if (context.routeKind === "wiki") {
+    return getWikiStatusTone(context.wikiState);
   }
 
   const status = context.status;
 
   if (isStatusPending(context)) {
-    return 'pending';
+    return "pending";
   }
 
   if (
-    status?.method === 'api' ||
-    status?.method === 'dom' ||
-    status?.reason === 'already_saved' ||
-    (status?.reason === 'api_fetch_failed' && status.method === 'dom')
+    status?.method === "api" ||
+    status?.method === "dom" ||
+    status?.reason === "already_saved" ||
+    (status?.reason === "api_fetch_failed" && status.method === "dom")
   ) {
-    return 'saved';
+    return "saved";
   }
 
-  return 'unknown';
+  return "unknown";
 }
 
 function getStatusTitle(context: ActiveTabContext | null): string {
-  if (!context?.supported) return 'Not a DeepWiki page';
-  if (context.status?.reason === 'auto_capture_disabled') return 'Auto-save is off';
-  if (isStatusPending(context)) return 'Saving session…';
-  if (
-    context.status?.method === 'api' ||
-    context.status?.method === 'dom' ||
-    context.status?.reason === 'already_saved'
-  ) {
-    return 'Session saved';
+  if (!context?.supported) return "Not a DeepWiki page";
+  if (context.routeKind === "wiki") {
+    if (context.wikiState?.state === "saved_fresh") return "Wiki page saved";
+    if (context.wikiState?.state === "saved_stale") return "Wiki page changed";
+    if (context.wikiState?.state === "updated") return "Wiki page updated";
+    return "Wiki page not saved";
   }
-  if (context.status?.reason === 'storage_error') return 'Save failed';
-  return 'Waiting to detect current session';
+  if (context.status?.reason === "auto_capture_disabled")
+    return "Auto-save is off";
+  if (isStatusPending(context)) return "Saving session…";
+  if (
+    context.status?.method === "api" ||
+    context.status?.method === "dom" ||
+    context.status?.reason === "already_saved"
+  ) {
+    return "Session saved";
+  }
+  if (context.status?.reason === "storage_error") return "Save failed";
+  return "Waiting to detect current session";
 }
 
 function getStatusSubtitle(context: ActiveTabContext | null): string {
-  if (!context?.supported) return 'Switch to DeepWiki to auto-detect a session';
-  if (context.status?.reason === 'auto_capture_disabled') return 'Save this page manually using the action on the right';
-  if (context.status?.reason === 'storage_error') return context.status.errorMessage ?? 'Please try again later';
-  if (context.status?.reason === 'api_fetch_failed' && context.status.method === 'dom') {
-    return 'Saved via DOM; API sync failed';
+  if (!context?.supported)
+    return "Switch to DeepWiki to save a session or wiki page";
+  if (context.routeKind === "wiki") {
+    if (context.wikiState?.state === "saved_stale")
+      return "Saved before, but this page now has newer content.";
+    if (
+      context.wikiState?.state === "saved_fresh" ||
+      context.wikiState?.state === "updated"
+    )
+      return "";
+    return "Save this DeepWiki wiki page as Markdown.";
   }
-  if (isStatusPending(context)) return 'Fetching session info for this page';
+  if (context.status?.reason === "auto_capture_disabled")
+    return "Save this page manually using the action on the right";
+  if (context.status?.reason === "storage_error")
+    return context.status.errorMessage ?? "Please try again later";
+  if (
+    context.status?.reason === "api_fetch_failed" &&
+    context.status.method === "dom"
+  ) {
+    return "Saved via DOM; API sync failed";
+  }
+  if (isStatusPending(context)) return "Fetching session info for this page";
 
   if (
-    (
-      context.status?.method === 'api' ||
-      context.status?.method === 'dom' ||
-      context.status?.reason === 'already_saved'
-    )
+    context.status?.method === "api" ||
+    context.status?.method === "dom" ||
+    context.status?.reason === "already_saved"
   ) {
-    return '';
+    return "";
   }
 
-  return 'Open a DeepWiki session page to auto-detect';
+  return "Open a DeepWiki session page to auto-detect";
 }
 
 function getStatusActionLabel(context: ActiveTabContext | null): string | null {
@@ -110,11 +152,18 @@ function getStatusActionLabel(context: ActiveTabContext | null): string | null {
     return null;
   }
 
-  if (isStatusPending(context) || context.status?.reason === 'auto_capture_disabled') {
-    return 'Save now';
+  if (context.routeKind === "wiki") {
+    return context.wikiState?.state === "saved_stale" ? "Refresh" : "Save page";
   }
 
-  return 'Save again';
+  if (
+    isStatusPending(context) ||
+    context.status?.reason === "auto_capture_disabled"
+  ) {
+    return "Save now";
+  }
+
+  return "Save again";
 }
 
 function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
@@ -122,7 +171,15 @@ function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
     return false;
   }
 
-  return isStatusPending(context) || !context.status || context.status?.reason === 'idle';
+  if (context.routeKind === "wiki") {
+    return false;
+  }
+
+  return (
+    isStatusPending(context) ||
+    !context.status ||
+    context.status?.reason === "idle"
+  );
 }
 
 function RefreshIcon() {
@@ -163,13 +220,17 @@ function ToastIcon() {
 }
 
 export function SidePanelApp() {
-  const [view, setView] = useState<View>('history');
-  const [keyword, setKeyword] = useState('');
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [view, setView] = useState<View>("history");
+  const [keyword, setKeyword] = useState("");
+  const [conversations, setConversations] = useState<ConversationListItem[]>(
+    [],
+  );
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [contextLoading, setContextLoading] = useState(true);
-  const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(null);
+  const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(
+    null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
@@ -181,17 +242,20 @@ export function SidePanelApp() {
 
   const debouncedKeyword = useDebouncedValue(keyword, SEARCH_DEBOUNCE_MS);
 
-  async function loadConversations(nextKeyword?: string, options?: { silent?: boolean }) {
+  async function loadConversations(
+    nextKeyword?: string,
+    options?: { silent?: boolean },
+  ) {
     if (!options?.silent) {
       setLoading(true);
       setErrorMessage(null);
     }
 
     try {
-      const items = await sendRuntimeMessage<ConversationListItem[], ListConversationsPayload>(
-        'LIST_CONVERSATIONS',
-        { keyword: nextKeyword }
-      );
+      const items = await sendRuntimeMessage<
+        ConversationListItem[],
+        ListConversationsPayload
+      >("LIST_CONVERSATIONS", { keyword: nextKeyword });
       setConversations(items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -208,7 +272,9 @@ export function SidePanelApp() {
     }
 
     try {
-      const nextContext = await sendRuntimeMessage<ActiveTabContext>('GET_ACTIVE_TAB_CONTEXT');
+      const nextContext = await sendRuntimeMessage<ActiveTabContext>(
+        "GET_ACTIVE_TAB_CONTEXT",
+      );
       setActiveContext(nextContext);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -220,14 +286,14 @@ export function SidePanelApp() {
   }
 
   async function loadSettings() {
-    const nextSettings = await sendRuntimeMessage<Settings>('GET_SETTINGS');
+    const nextSettings = await sendRuntimeMessage<Settings>("GET_SETTINGS");
     setSettings(nextSettings);
   }
 
   async function refreshPanel(options?: { silent?: boolean }) {
     await Promise.all([
       loadConversations(debouncedKeyword, options),
-      loadActiveContext(options)
+      loadActiveContext(options),
     ]);
   }
 
@@ -240,7 +306,7 @@ export function SidePanelApp() {
   }, []);
 
   useEffect(() => {
-    if (view === 'settings') {
+    if (view === "settings") {
       void loadSettings();
     }
   }, [view]);
@@ -252,8 +318,8 @@ export function SidePanelApp() {
         setMenuOpen(false);
       }
     }
-    document.addEventListener('mousedown', onOutsideClick);
-    return () => document.removeEventListener('mousedown', onOutsideClick);
+    document.addEventListener("mousedown", onOutsideClick);
+    return () => document.removeEventListener("mousedown", onOutsideClick);
   }, [menuOpen]);
 
   useEffect(() => {
@@ -273,24 +339,45 @@ export function SidePanelApp() {
       void refreshPanel({ silent: true });
     };
 
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [debouncedKeyword]);
 
   useEffect(() => {
     const onMessage = (request: RuntimeRequest) => {
-      if (request.command !== 'ACTIVE_TAB_CONTEXT_CHANGED') {
+      if (request.command === "ACTIVE_TAB_CONTEXT_CHANGED") {
+        const payload = request.payload as
+          | ActiveTabContextChangedPayload
+          | undefined;
+
+        if (!payload?.context) {
+          return;
+        }
+
+        setContextLoading(false);
+        setActiveContext(payload.context);
         return;
       }
 
-      const payload = request.payload as ActiveTabContextChangedPayload | undefined;
+      if (request.command === "WIKI_PAGE_STATE_CHANGED") {
+        const payload = request.payload as
+          | WikiPageStateChangedPayload
+          | undefined;
+        if (!payload) {
+          return;
+        }
 
-      if (!payload?.context) {
-        return;
+        setActiveContext((current) => {
+          if (
+            !current ||
+            current.routeKind !== "wiki" ||
+            current.url !== payload.url
+          ) {
+            return current;
+          }
+          return { ...current, wikiState: payload };
+        });
       }
-
-      setContextLoading(false);
-      setActiveContext(payload.context);
     };
 
     chrome.runtime.onMessage.addListener(onMessage);
@@ -316,27 +403,30 @@ export function SidePanelApp() {
   }, [infoMessage]);
 
   function handleBack() {
-    setView('history');
+    setView("history");
     setInfoMessage(null);
   }
 
   async function handleDeleteConversation(conversationId: string) {
-    if (!window.confirm('Delete this record? This cannot be undone.')) {
+    if (!window.confirm("Delete this record? This cannot be undone.")) {
       return;
     }
 
     setInfoMessage(null);
-    await sendRuntimeMessage<void, DeleteConversationPayload>('DELETE_CONVERSATION', { conversationId });
+    await sendRuntimeMessage<void, DeleteConversationPayload>(
+      "DELETE_CONVERSATION",
+      { conversationId },
+    );
     await loadConversations(debouncedKeyword);
   }
 
   async function handleClearAllData() {
-    if (!window.confirm('Clear all locally saved data?')) {
+    if (!window.confirm("Clear all locally saved data?")) {
       return;
     }
 
     setInfoMessage(null);
-    await sendRuntimeMessage('CLEAR_ALL_DATA');
+    await sendRuntimeMessage("CLEAR_ALL_DATA");
     await loadConversations(debouncedKeyword);
   }
 
@@ -345,8 +435,11 @@ export function SidePanelApp() {
       return;
     }
 
-    const nextSettings = await sendRuntimeMessage<Settings, UpdateSettingsPayload>('UPDATE_SETTINGS', {
-      patch: { autoCaptureEnabled: !settings.autoCaptureEnabled }
+    const nextSettings = await sendRuntimeMessage<
+      Settings,
+      UpdateSettingsPayload
+    >("UPDATE_SETTINGS", {
+      patch: { autoCaptureEnabled: !settings.autoCaptureEnabled },
     });
     setSettings(nextSettings);
     await loadActiveContext();
@@ -355,7 +448,7 @@ export function SidePanelApp() {
   async function handleCopySourceUrl(sourceUrl: string) {
     try {
       await navigator.clipboard.writeText(sourceUrl);
-      setInfoMessage('Session URL copied to clipboard');
+      setInfoMessage("Session URL copied to clipboard");
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -366,25 +459,69 @@ export function SidePanelApp() {
     setErrorMessage(null);
 
     try {
-      const result = await sendRuntimeMessage<ExportConversationMarkdownResult, { conversationId: string }>(
-        'EXPORT_CONVERSATION_MARKDOWN',
-        { conversationId }
-      );
-      const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' });
+      const result = await sendRuntimeMessage<
+        ExportConversationMarkdownResult,
+        { conversationId: string }
+      >("EXPORT_CONVERSATION_MARKDOWN", { conversationId });
+      const blob = new Blob([result.markdown], {
+        type: "text/markdown;charset=utf-8",
+      });
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
+      const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = result.filename;
       anchor.click();
       URL.revokeObjectURL(url);
-      setInfoMessage('Markdown file exported');
+      setInfoMessage("Markdown file exported");
     } catch (error) {
       setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
     }
   }
 
   async function handleManualSave() {
-    if (!activeContext?.queryId || !activeContext.url) {
+    if (!activeContext?.url) {
+      return;
+    }
+
+    if (activeContext.routeKind === "wiki") {
+      const wikiUrl = activeContext.url;
+      try {
+        setErrorMessage(null);
+        setInfoMessage(null);
+        const result = await sendRuntimeMessage<
+          SaveWikiPageResult,
+          { tabId?: number }
+        >("SAVE_WIKI_PAGE", {
+          tabId: activeContext.tabId,
+        });
+        setActiveContext((current) =>
+          current
+            ? {
+                ...current,
+                wikiState: {
+                  url: wikiUrl,
+                  pageId: result.pageId,
+                  title: result.title,
+                  state: "saved_fresh",
+                },
+              }
+            : current,
+        );
+        setInfoMessage(
+          result.created
+            ? "Wiki page saved."
+            : result.changed
+              ? "Wiki page refreshed."
+              : "Wiki page saved again.",
+        );
+        return;
+      } catch (error) {
+        setErrorMessage(`Save failed: ${ensureErrorMessage(error)}`);
+        return;
+      }
+    }
+
+    if (!activeContext.queryId) {
       return;
     }
 
@@ -393,16 +530,25 @@ export function SidePanelApp() {
 
     if (activeContext.tabId) {
       try {
-        const tabResponse = (await chrome.tabs.sendMessage(activeContext.tabId, {
-          command: 'TRIGGER_RECAPTURE'
-        } satisfies RuntimeRequest)) as RuntimeResponse<ActiveTabContext['status']>;
+        const tabResponse = (await chrome.tabs.sendMessage(
+          activeContext.tabId,
+          {
+            command: "TRIGGER_RECAPTURE",
+          } satisfies RuntimeRequest,
+        )) as RuntimeResponse<ActiveTabContext["status"]>;
 
         if (!tabResponse.ok) {
-          throw new Error(tabResponse.error?.message ?? 'Content script recapture failed');
+          throw new Error(
+            tabResponse.error?.message ?? "Content script recapture failed",
+          );
         }
 
-        setActiveContext((current) => current ? { ...current, status: tabResponse.data ?? current.status } : current);
-        setInfoMessage('Recapture triggered for the current session.');
+        setActiveContext((current) =>
+          current
+            ? { ...current, status: tabResponse.data ?? current.status }
+            : current,
+        );
+        setInfoMessage("Recapture triggered for the current session.");
         await refreshPanel();
         return;
       } catch {
@@ -411,14 +557,14 @@ export function SidePanelApp() {
     }
 
     try {
-      const captureResult = await sendRuntimeMessage<CaptureResult, CaptureDeepWikiSessionPayload>(
-        'CAPTURE_DEEPWIKI_SESSION',
-        {
-          queryId: activeContext.queryId,
-          sourceUrl: activeContext.url,
-          tabId: activeContext.tabId
-        }
-      );
+      const captureResult = await sendRuntimeMessage<
+        CaptureResult,
+        CaptureDeepWikiSessionPayload
+      >("CAPTURE_DEEPWIKI_SESSION", {
+        queryId: activeContext.queryId,
+        sourceUrl: activeContext.url,
+        tabId: activeContext.tabId,
+      });
 
       setActiveContext((current) =>
         current
@@ -429,7 +575,7 @@ export function SidePanelApp() {
                   supported: true,
                   active: true,
                   queryId: current.queryId,
-                  sourceUrl: current.url
+                  sourceUrl: current.url,
                 }),
                 method: captureResult.method,
                 lastCapturedAt: captureResult.savedAt,
@@ -438,13 +584,13 @@ export function SidePanelApp() {
                 reason: undefined,
                 errorMessage: undefined,
                 performance: captureResult.performance,
-                existingConversationId: undefined
-              }
+                existingConversationId: undefined,
+              },
             }
-          : current
+          : current,
       );
 
-      setInfoMessage('Current session re-saved via background.');
+      setInfoMessage("Current session re-saved via background.");
       await refreshPanel();
     } catch (error) {
       setErrorMessage(`Save failed: ${ensureErrorMessage(error)}`);
@@ -456,11 +602,11 @@ export function SidePanelApp() {
     setErrorMessage(null);
 
     try {
-      const backup = await sendRuntimeMessage<ExportDataResult>('EXPORT_DATA');
+      const backup = await sendRuntimeMessage<ExportDataResult>("EXPORT_DATA");
       const json = JSON.stringify(backup, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
+      const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
+      const anchor = document.createElement("a");
       const date = new Date().toISOString().slice(0, 10);
       anchor.href = url;
       anchor.download = `wikeep-backup-${date}.json`;
@@ -474,9 +620,11 @@ export function SidePanelApp() {
     }
   }
 
-  async function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImportFileChange(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = e.target.files?.[0];
-    e.target.value = '';
+    e.target.value = "";
 
     if (!file) {
       return;
@@ -490,14 +638,19 @@ export function SidePanelApp() {
       const backup = JSON.parse(text) as BackupData;
 
       if (
-        typeof backup.version !== 'number' ||
+        typeof backup.version !== "number" ||
         !Array.isArray(backup.conversations) ||
         !Array.isArray(backup.messages)
       ) {
-        throw new Error('Invalid backup file. Please choose a JSON file exported by Wikeep.');
+        throw new Error(
+          "Invalid backup file. Please choose a JSON file exported by Wikeep.",
+        );
       }
 
-      const result = await sendRuntimeMessage<ImportDataResult, ImportDataPayload>('IMPORT_DATA', { backup });
+      const result = await sendRuntimeMessage<
+        ImportDataResult,
+        ImportDataPayload
+      >("IMPORT_DATA", { backup });
       setInfoMessage(`Imported ${result.conversationCount} conversations.`);
       await loadConversations(debouncedKeyword);
     } catch (error) {
@@ -509,10 +662,17 @@ export function SidePanelApp() {
 
   const statusTone = getStatusTone(activeContext);
   const statusActionLabel = getStatusActionLabel(activeContext);
-  const statusSubtitle = contextLoading ? 'Please wait…' : getStatusSubtitle(activeContext);
+  const statusSubtitle = contextLoading
+    ? "Please wait…"
+    : getStatusSubtitle(activeContext);
   const showRecentLabel = !keyword.trim() && conversations.length > 0;
-  const showBack = view === 'settings' || view === 'backup';
-  const toolbarTitle = view === 'settings' ? 'Settings' : view === 'backup' ? 'Backup & Restore' : '';
+  const showBack = view === "settings" || view === "backup";
+  const toolbarTitle =
+    view === "settings"
+      ? "Settings"
+      : view === "backup"
+        ? "Backup & Restore"
+        : "";
 
   return (
     <div className="panel">
@@ -520,10 +680,16 @@ export function SidePanelApp() {
         ref={fileInputRef}
         type="file"
         accept=".json"
-        style={{ display: 'none' }}
+        style={{ display: "none" }}
         onChange={(e) => void handleImportFileChange(e)}
       />
-      <div className={showBack ? 'panel__toolbar panel__toolbar--settings' : 'panel__toolbar'}>
+      <div
+        className={
+          showBack
+            ? "panel__toolbar panel__toolbar--settings"
+            : "panel__toolbar"
+        }
+      >
         {showBack ? (
           <>
             <button className="back-btn" onClick={handleBack}>
@@ -534,7 +700,11 @@ export function SidePanelApp() {
           </>
         ) : (
           <>
-            <SearchBox value={keyword} onChange={setKeyword} placeholder="Search by repo name or conversation" />
+            <SearchBox
+              value={keyword}
+              onChange={setKeyword}
+              placeholder="Search by repo name or conversation"
+            />
             <button
               type="button"
               className="btn-icon"
@@ -558,11 +728,21 @@ export function SidePanelApp() {
                     type="button"
                     className="dropdown__item"
                     onClick={() => {
-                      setView('settings');
+                      setView("settings");
                       setMenuOpen(false);
                     }}
                   >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ marginRight: 6, flexShrink: 0 }}
+                    >
                       <circle cx="8" cy="8" r="2.5" />
                       <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
                     </svg>
@@ -572,11 +752,21 @@ export function SidePanelApp() {
                     type="button"
                     className="dropdown__item"
                     onClick={() => {
-                      setView('backup');
+                      setView("backup");
                       setMenuOpen(false);
                     }}
                   >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, flexShrink: 0 }}>
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ marginRight: 6, flexShrink: 0 }}
+                    >
                       <ellipse cx="8" cy="4" rx="6" ry="2" />
                       <path d="M2 4v3c0 1.1 2.7 2 6 2s6-.9 6-2V4" />
                       <path d="M2 7v3c0 1.1 2.7 2 6 2s6-.9 6-2V7" />
@@ -591,7 +781,9 @@ export function SidePanelApp() {
         )}
       </div>
 
-      {errorMessage ? <div className="banner banner--error">{errorMessage}</div> : null}
+      {errorMessage ? (
+        <div className="banner banner--error">{errorMessage}</div>
+      ) : null}
       {infoMessage ? (
         <div className="toast-wrap">
           <div className="toast">
@@ -601,48 +793,52 @@ export function SidePanelApp() {
         </div>
       ) : null}
 
-      {view === 'history' ? (
+      {view === "history" ? (
         <div
           className={[
-            'status-bar',
-            statusTone === 'saved' ? 'is-saved' : '',
-            statusTone === 'pending' ? 'is-pending' : '',
-            statusTone === 'unknown' ? 'is-unknown' : ''
+            "status-bar",
+            statusTone === "saved" ? "is-saved" : "",
+            statusTone === "pending" ? "is-pending" : "",
+            statusTone === "unknown" ? "is-unknown" : "",
           ]
             .filter(Boolean)
-            .join(' ')}
+            .join(" ")}
         >
           <span
             className={[
-              'status-bar__dot',
-              statusTone === 'saved' ? 'is-saved' : '',
-              statusTone === 'pending' ? 'is-pending' : '',
-              statusTone === 'unknown' ? 'is-unknown' : ''
+              "status-bar__dot",
+              statusTone === "saved" ? "is-saved" : "",
+              statusTone === "pending" ? "is-pending" : "",
+              statusTone === "unknown" ? "is-unknown" : "",
             ]
               .filter(Boolean)
-              .join(' ')}
+              .join(" ")}
           />
           <div className="status-bar__main">
             <div
               className={[
-                'status-bar__title',
-                statusTone === 'saved' ? 'is-saved' : '',
-                statusTone === 'pending' ? 'is-pending' : '',
-                statusTone === 'unknown' ? 'is-unknown' : ''
+                "status-bar__title",
+                statusTone === "saved" ? "is-saved" : "",
+                statusTone === "pending" ? "is-pending" : "",
+                statusTone === "unknown" ? "is-unknown" : "",
               ]
                 .filter(Boolean)
-                .join(' ')}
+                .join(" ")}
             >
-              {contextLoading ? 'Reading current page status' : getStatusTitle(activeContext)}
+              {contextLoading
+                ? "Reading current page status"
+                : getStatusTitle(activeContext)}
             </div>
             {statusSubtitle ? (
-              <div className="status-bar__subtitle">
-                {statusSubtitle}
-              </div>
+              <div className="status-bar__subtitle">{statusSubtitle}</div>
             ) : null}
           </div>
           {statusActionLabel ? (
-            <button type="button" className="status-bar__action" onClick={() => void handleManualSave()}>
+            <button
+              type="button"
+              className="status-bar__action"
+              onClick={() => void handleManualSave()}
+            >
               {statusActionLabel}
             </button>
           ) : null}
@@ -650,7 +846,7 @@ export function SidePanelApp() {
       ) : null}
 
       <div className="panel__content">
-        {view === 'settings' ? (
+        {view === "settings" ? (
           <div className="settings settings--compact">
             <div className="settings-section">
               <div className="settings__section-title">Auto-save</div>
@@ -658,7 +854,10 @@ export function SidePanelApp() {
                 <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
                     <div className="settings__label">Enable auto-save</div>
-                    <div className="settings__help">When a DeepWiki page is detected, automatically save the question and repo info locally.</div>
+                    <div className="settings__help">
+                      When a DeepWiki page is detected, automatically save the
+                      question and repo info locally.
+                    </div>
                   </div>
                   <label className="toggle">
                     <input
@@ -670,7 +869,10 @@ export function SidePanelApp() {
                   </label>
                 </div>
               ) : (
-                <EmptyState title="Loading settings" description="Please wait…" />
+                <EmptyState
+                  title="Loading settings"
+                  description="Please wait…"
+                />
               )}
             </div>
 
@@ -680,23 +882,32 @@ export function SidePanelApp() {
                 <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
                     <div className="settings__label">Clear all local data</div>
-                    <div className="settings__help">Deletes all saved history. This cannot be undone.</div>
+                    <div className="settings__help">
+                      Deletes all saved history. This cannot be undone.
+                    </div>
                   </div>
-                  <button type="button" className="btn btn--danger settings__danger-btn" onClick={() => void handleClearAllData()}>
+                  <button
+                    type="button"
+                    className="btn btn--danger settings__danger-btn"
+                    onClick={() => void handleClearAllData()}
+                  >
                     Clear
                   </button>
                 </div>
               </div>
             ) : null}
           </div>
-        ) : view === 'backup' ? (
+        ) : view === "backup" ? (
           <div className="settings settings--compact">
             <div className="settings-section">
               <div className="settings__section-title">Export data</div>
               <div className="settings__item settings__item--compact">
                 <div className="settings__item-content">
                   <div className="settings__label">Export as JSON file</div>
-                  <div className="settings__help">Export all locally saved conversations as a backup file you can restore after reinstalling.</div>
+                  <div className="settings__help">
+                    Export all locally saved conversations as a backup file you
+                    can restore after reinstalling.
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -704,7 +915,7 @@ export function SidePanelApp() {
                   onClick={() => void handleExportData()}
                   disabled={exportLoading}
                 >
-                  {exportLoading ? 'Exporting…' : 'Export'}
+                  {exportLoading ? "Exporting…" : "Export"}
                 </button>
               </div>
             </div>
@@ -713,8 +924,13 @@ export function SidePanelApp() {
               <div className="settings__section-title">Import data</div>
               <div className="settings__item settings__item--compact">
                 <div className="settings__item-content">
-                  <div className="settings__label">Restore from backup file</div>
-                  <div className="settings__help">Choose a previously exported JSON backup; data is merged into your local records without deleting existing data.</div>
+                  <div className="settings__label">
+                    Restore from backup file
+                  </div>
+                  <div className="settings__help">
+                    Choose a previously exported JSON backup; data is merged
+                    into your local records without deleting existing data.
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -722,7 +938,7 @@ export function SidePanelApp() {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={importLoading}
                 >
-                  {importLoading ? 'Importing…' : 'Import'}
+                  {importLoading ? "Importing…" : "Import"}
                 </button>
               </div>
             </div>
@@ -730,22 +946,29 @@ export function SidePanelApp() {
         ) : (
           <>
             {loading ? (
-              <EmptyState title="Loading history" description="Wikeep is reading local conversation records." />
+              <EmptyState
+                title="Loading history"
+                description="Wikeep is reading local conversation records."
+              />
             ) : conversations.length === 0 ? (
               <EmptyState
                 title="No history yet"
                 description={
-                  keyword ? 'No conversations match your search.' : 'Open a DeepWiki session page and Wikeep will save history automatically.'
+                  keyword
+                    ? "No conversations match your search."
+                    : "Open a DeepWiki session page and Wikeep will save history automatically."
                 }
               />
             ) : (
               <>
-                {showRecentLabel ? <div className="panel__section-label">Recent</div> : null}
+                {showRecentLabel ? (
+                  <div className="panel__section-label">Recent</div>
+                ) : null}
                 <ConversationList
                   items={conversations}
                   onDelete={(id) => void handleDeleteConversation(id)}
                   onCopyUrl={(url) => void handleCopySourceUrl(url)}
-                  onOpenUrl={(url) => window.open(url, '_blank')}
+                  onOpenUrl={(url) => window.open(url, "_blank")}
                   onExportMarkdown={(id) => void handleExportMarkdown(id)}
                 />
               </>
