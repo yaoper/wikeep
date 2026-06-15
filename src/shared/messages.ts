@@ -31,7 +31,9 @@ export type RuntimeCommand =
   | "EXPORT_CONVERSATION_MARKDOWN"
   | "WIKI_PAGE_DETECTED"
   | "SAVE_WIKI_PAGE"
+  | "SAVE_FULL_WIKI"
   | "GET_WIKI_PAGE_SNAPSHOT"
+  | "GET_FULL_WIKI_SNAPSHOT"
   | "LIST_WIKI_PAGES"
   | "GET_WIKI_PAGE"
   | "DELETE_WIKI_PAGE"
@@ -119,6 +121,11 @@ export interface WikiPageDetectedPayload {
 }
 
 export interface SaveWikiPagePayload {
+  tabId?: number;
+  snapshot?: WikiPageSnapshot;
+}
+
+export interface SaveFullWikiPayload {
   tabId?: number;
   snapshot?: WikiPageSnapshot;
 }
