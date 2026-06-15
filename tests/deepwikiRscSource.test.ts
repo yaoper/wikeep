@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { extractWikiMarkdownFromRsc } from "../src/parser/deepwikiRscSource";
+import {
+  extractFullWikiMarkdownFromRsc,
+  extractWikiMarkdownFromRsc,
+} from "../src/parser/deepwikiRscSource";
 
 describe("extractWikiMarkdownFromRsc", () => {
   it("extracts only the current page by visible title", () => {
@@ -81,5 +84,28 @@ describe("extractWikiMarkdownFromRsc", () => {
     expect(md).toContain("Sources: package.json and README.md");
     expect(md).not.toContain("Repository Structure and Packages");
     expect(md).not.toContain("Build System and Tooling");
+  });
+
+  it("can intentionally extract the full wiki bundle", () => {
+    const raw = [
+      "# React Repository Overview",
+      "Overview content. ".repeat(20),
+      "---",
+      "## Repository Structure and Packages",
+      "Repository structure content. ".repeat(20),
+      "```mermaid",
+      "graph TD",
+      "  react --> scheduler",
+      "```",
+      "## Build System and Tooling",
+      "Build tooling content. ".repeat(20),
+    ].join("\\n");
+
+    const md = extractFullWikiMarkdownFromRsc(raw);
+
+    expect(md).toContain("React Repository Overview");
+    expect(md).toContain("Repository Structure and Packages");
+    expect(md).toContain("Build System and Tooling");
+    expect(md).toContain("```mermaid");
   });
 });
