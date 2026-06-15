@@ -65,87 +65,6 @@ export function sanitizeForMarkdown(liveRoot: HTMLElement): HTMLElement {
   return clone;
 }
 
-function isRepositoryOverviewPage(title: string, sectionPath?: string): boolean {
-  const normTitle = normalizeText(title).toLowerCase();
-  const normSection = (sectionPath ?? "").replace(/-/g, " ").toLowerCase();
-  return normTitle.endsWith("repository overview") || normSection.endsWith("repository overview");
-}
-
-function textBeforeNode(root: HTMLElement, node: Node): string {
-  const range = root.ownerDocument.createRange();
-  range.setStart(root, 0);
-  range.setEndBefore(node);
-  const text = range.cloneContents().textContent ?? "";
-  range.detach();
-  return normalizeText(text);
-}
-
-function textAfterNode(node: Node): string {
-  const fragments: string[] = [];
-  let cursor = node.nextSibling;
-  while (cursor) {
-    fragments.push(cursor.textContent ?? "");
-    cursor = cursor.nextSibling;
-  }
-  return normalizeText(fragments.join(" "));
-}
-
-function nextHeadingAfter(node: Node): HTMLHeadingElement | null {
-  let cursor = node.nextSibling;
-  while (cursor) {
-    if (
-      cursor instanceof HTMLHeadingElement &&
-      /^H[2-3]$/i.test(cursor.tagName)
-    ) {
-      return cursor;
-    }
-    if (cursor instanceof HTMLElement) {
-      const heading = cursor.querySelector<HTMLHeadingElement>("h2, h3");
-      if (heading) return heading;
-    }
-    cursor = cursor.nextSibling;
-  }
-  return null;
-}
-
-function findRepositoryOverviewBoundaryRule(root: HTMLElement): HTMLHRElement | null {
-  const rules = Array.from(root.querySelectorAll<HTMLHRElement>("hr"));
-  if (rules.length === 0) return null;
-
-  const afterSourcesRule = rules.find((rule) => {
-    const before = textBeforeNode(root, rule);
-    return /\b(?:Sources?|References?)\s*:/i.test(before) && !!nextHeadingAfter(rule);
-  });
-  if (afterSourcesRule) return afterSourcesRule;
-
-  // Fallback for variant markup: only cut at a divider after a substantial
-  // overview body, not at an early divider after the source-file disclosure.
-  return (
-    rules.find((rule) => {
-      const before = textBeforeNode(root, rule);
-      const after = textAfterNode(rule);
-      return before.length > 800 && /^\S/.test(after) && !!nextHeadingAfter(rule);
-    }) ?? null
-  );
-}
-
-function trimRepositoryOverviewDom(root: HTMLElement): HTMLElement {
-  // The overview route can render child-page summaries after <hr> separators.
-  // A unique page save should keep the active overview block, including
-  // "Relevant source files", body paragraphs, and the overview Sources block.
-  const boundaryRule = findRepositoryOverviewBoundaryRule(root);
-  if (!boundaryRule?.parentNode) return root;
-
-  let node: ChildNode | null = boundaryRule;
-  while (node) {
-    const next: ChildNode | null = node.nextSibling;
-    node.parentNode?.removeChild(node);
-    node = next;
-  }
-
-  return root;
-}
-
 function extractIndexedCommit(root: HTMLElement): string | undefined {
   const href = root.querySelector('a[href*="/blob/"]')?.getAttribute("href");
   return href?.match(/\/blob\/([0-9a-f]{7,40})\//)?.[1];
@@ -185,9 +104,7 @@ export function parseWikiPage(
   }
 
   const title = extractTitle(document, root);
-  const sanitized = isRepositoryOverviewPage(title, parts.sectionPath)
-    ? trimRepositoryOverviewDom(sanitizeForMarkdown(root))
-    : sanitizeForMarkdown(root);
+  const sanitized = sanitizeForMarkdown(root);
   const rscMarkdown = rscRaw
     ? extractWikiMarkdownFromRsc(rscRaw, {
         title,
@@ -262,14 +179,9 @@ export function fingerprintWikiPage(
   if (!parts) return null;
   const root = findContentRoot(document);
   if (!root) return null;
-
-  const title = extractTitle(document, root);
-  const sanitized = isRepositoryOverviewPage(title, parts.sectionPath)
-    ? trimRepositoryOverviewDom(sanitizeForMarkdown(root))
-    : sanitizeForMarkdown(root);
-  const cleaned = normalizeText(getElementText(sanitized));
+  const sanitized = sanitizeForMarkdown(root);
   return {
-    contentHash: stableHash(cleaned),
+    contentHash: stableHash(normalizeText(getElementText(sanitized))),
     indexedCommit: extractIndexedCommit(root),
   };
 }
