@@ -59,6 +59,36 @@ describe("extractWikiMarkdownFromRsc", () => {
     expect(md).not.toContain("Build content");
   });
 
+  it("keeps overview text when an early divider follows relevant source files", () => {
+    const overviewBody =
+      "The React repository is a monorepo containing the core React library, renderers, developer tools, compiler, supporting packages, coordinated releases, and cross-package optimizations. ".repeat(6);
+    const raw = [
+      "# React Repository Overview",
+      "<details><summary>Relevant source files</summary></details>",
+      "---",
+      overviewBody,
+      "Sources: package.json and README.md",
+      "---",
+      "## Repository Structure and Packages",
+      "This child-page summary must not be included in the unique overview export.",
+      "---",
+      "## Build System and Tooling",
+      "Another child-page summary must not be included either.",
+    ].join("\\n");
+
+    const md = extractWikiMarkdownFromRsc(raw, {
+      title: "React Repository Overview",
+      sectionPath: "1-react-repository-overview",
+    });
+
+    expect(md).toMatch(/^# React Repository Overview/m);
+    expect(md).toContain("Relevant source files");
+    expect(md).toContain("The React repository is a monorepo");
+    expect(md).toContain("Sources: package.json and README.md");
+    expect(md).not.toContain("Repository Structure and Packages");
+    expect(md).not.toContain("Build System and Tooling");
+  });
+
   it("trims repository overview pages before embedded child-page summaries", () => {
     const overviewBody =
       "High-level React repository overview content for the active page. ".repeat(8);
