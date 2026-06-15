@@ -60,6 +60,29 @@ export function sanitizeForMarkdown(liveRoot: HTMLElement): HTMLElement {
   return clone;
 }
 
+function isRepositoryOverviewPage(title: string, sectionPath?: string): boolean {
+  const normTitle = normalizeText(title).toLowerCase();
+  const normSection = (sectionPath ?? "").replace(/-/g, " ").toLowerCase();
+  return normTitle.endsWith("repository overview") || normSection.endsWith("repository overview");
+}
+
+function trimRepositoryOverviewDom(root: HTMLElement): HTMLElement {
+  // The overview route can render child-page summaries after <hr> separators.
+  // A unique page save should keep only the active overview block; the child
+  // pages are saved separately through their own URLs.
+  const firstRule = root.querySelector("hr");
+  if (!firstRule?.parentNode) return root;
+
+  let node: ChildNode | null = firstRule;
+  while (node) {
+    const next: ChildNode | null = node.nextSibling;
+    node.parentNode?.removeChild(node);
+    node = next;
+  }
+
+  return root;
+}
+
 function extractIndexedCommit(root: HTMLElement): string | undefined {
   const href = root.querySelector('a[href*="/blob/"]')?.getAttribute("href");
   return href?.match(/\/blob\/([0-9a-f]{7,40})\//)?.[1];
@@ -95,7 +118,9 @@ export function parseWikiPage(
   }
 
   const title = extractTitle(document, root);
-  const sanitized = sanitizeForMarkdown(root);
+  const sanitized = isRepositoryOverviewPage(title, parts.sectionPath)
+    ? trimRepositoryOverviewDom(sanitizeForMarkdown(root))
+    : sanitizeForMarkdown(root);
   const rscMarkdown = rscRaw
     ? extractWikiMarkdownFromRsc(rscRaw, {
         title,
@@ -134,7 +159,12 @@ export function fingerprintWikiPage(
   if (!parts) return null;
   const root = findContentRoot(document);
   if (!root) return null;
-  const cleaned = normalizeText(getElementText(sanitizeForMarkdown(root)));
+
+  const title = extractTitle(document, root);
+  const sanitized = isRepositoryOverviewPage(title, parts.sectionPath)
+    ? trimRepositoryOverviewDom(sanitizeForMarkdown(root))
+    : sanitizeForMarkdown(root);
+  const cleaned = normalizeText(getElementText(sanitized));
   return {
     contentHash: stableHash(cleaned),
     indexedCommit: extractIndexedCommit(root),
