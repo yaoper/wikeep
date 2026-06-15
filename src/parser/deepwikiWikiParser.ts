@@ -98,6 +98,7 @@ export function parseWikiPage(
   const rscMarkdown = rscRaw ? extractWikiMarkdownFromRsc(rscRaw) : null;
   const markdown =
     rscMarkdown ?? elementToMarkdown(sanitized, { sourceUrl: url });
+  const markdownSource = rscMarkdown ? "rsc" : "dom";
   const cleanedText = normalizeText(getElementText(sanitized));
 
   return {
@@ -107,6 +108,7 @@ export function parseWikiPage(
     sectionPath: parts.sectionPath,
     title: extractTitle(document, root),
     markdown,
+    markdownSource,
     contentHash: stableHash(cleanedText),
     indexedCommit: extractIndexedCommit(root),
     relatedSections: extractToc(document, parts.owner, parts.repo),

@@ -366,13 +366,28 @@ function setupObserver(queryId: string): void {
   });
 }
 
-function rscRawForCurrent(): string | null {
-  if (latestRscRaw?.url !== location.href) {
-    window.postMessage({ source: "wikeep-rsc-request" }, location.origin);
-    return null;
+async function waitForRscRaw(timeoutMs = 1200): Promise<string | null> {
+  if (latestRscRaw?.url === location.href) {
+    return latestRscRaw.raw;
   }
 
-  return latestRscRaw.raw;
+  window.postMessage({ source: "wikeep-rsc-request" }, location.origin);
+
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (latestRscRaw?.url === location.href) {
+        window.clearInterval(timer);
+        resolve(latestRscRaw.raw);
+        return;
+      }
+
+      if (Date.now() - started >= timeoutMs) {
+        window.clearInterval(timer);
+        resolve(null);
+      }
+    }, 100);
+  });
 }
 
 function handleWikiMessage(
@@ -384,8 +399,10 @@ function handleWikiMessage(
     request.command === "GET_WIKI_PAGE_SNAPSHOT" ||
     request.command === "SAVE_WIKI_PAGE"
   ) {
-    const snapshot = parseWikiPage(document, location.href, rscRawForCurrent());
-    sendResponse({ ok: true, data: { snapshot } });
+    void waitForRscRaw().then((rscRaw) => {
+      const snapshot = parseWikiPage(document, location.href, rscRaw);
+      sendResponse({ ok: true, data: { snapshot } });
+    });
     return true;
   }
 }
