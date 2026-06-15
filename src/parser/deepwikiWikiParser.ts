@@ -71,14 +71,72 @@ function isRepositoryOverviewPage(title: string, sectionPath?: string): boolean 
   return normTitle.endsWith("repository overview") || normSection.endsWith("repository overview");
 }
 
+function textBeforeNode(root: HTMLElement, node: Node): string {
+  const range = root.ownerDocument.createRange();
+  range.setStart(root, 0);
+  range.setEndBefore(node);
+  const text = range.cloneContents().textContent ?? "";
+  range.detach();
+  return normalizeText(text);
+}
+
+function textAfterNode(node: Node): string {
+  const fragments: string[] = [];
+  let cursor = node.nextSibling;
+  while (cursor) {
+    fragments.push(cursor.textContent ?? "");
+    cursor = cursor.nextSibling;
+  }
+  return normalizeText(fragments.join(" "));
+}
+
+function nextHeadingAfter(node: Node): HTMLHeadingElement | null {
+  let cursor = node.nextSibling;
+  while (cursor) {
+    if (
+      cursor instanceof HTMLHeadingElement &&
+      /^H[2-3]$/i.test(cursor.tagName)
+    ) {
+      return cursor;
+    }
+    if (cursor instanceof HTMLElement) {
+      const heading = cursor.querySelector<HTMLHeadingElement>("h2, h3");
+      if (heading) return heading;
+    }
+    cursor = cursor.nextSibling;
+  }
+  return null;
+}
+
+function findRepositoryOverviewBoundaryRule(root: HTMLElement): HTMLHRElement | null {
+  const rules = Array.from(root.querySelectorAll<HTMLHRElement>("hr"));
+  if (rules.length === 0) return null;
+
+  const afterSourcesRule = rules.find((rule) => {
+    const before = textBeforeNode(root, rule);
+    return /\b(?:Sources?|References?)\s*:/i.test(before) && !!nextHeadingAfter(rule);
+  });
+  if (afterSourcesRule) return afterSourcesRule;
+
+  // Fallback for variant markup: only cut at a divider after a substantial
+  // overview body, not at an early divider after the source-file disclosure.
+  return (
+    rules.find((rule) => {
+      const before = textBeforeNode(root, rule);
+      const after = textAfterNode(rule);
+      return before.length > 800 && /^\S/.test(after) && !!nextHeadingAfter(rule);
+    }) ?? null
+  );
+}
+
 function trimRepositoryOverviewDom(root: HTMLElement): HTMLElement {
   // The overview route can render child-page summaries after <hr> separators.
-  // A unique page save should keep only the active overview block; the child
-  // pages are saved separately through their own URLs.
-  const firstRule = root.querySelector("hr");
-  if (!firstRule?.parentNode) return root;
+  // A unique page save should keep the active overview block, including
+  // "Relevant source files", body paragraphs, and the overview Sources block.
+  const boundaryRule = findRepositoryOverviewBoundaryRule(root);
+  if (!boundaryRule?.parentNode) return root;
 
-  let node: ChildNode | null = firstRule;
+  let node: ChildNode | null = boundaryRule;
   while (node) {
     const next: ChildNode | null = node.nextSibling;
     node.parentNode?.removeChild(node);
