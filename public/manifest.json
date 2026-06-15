@@ -4,7 +4,10 @@
   "description": "Save and search DeepWiki conversations locally.",
   "version": "0.1.0",
   "permissions": ["storage", "sidePanel", "activeTab"],
-  "host_permissions": ["https://deepwiki.com/*", "https://api.devin.ai/ada/query/*"],
+  "host_permissions": [
+    "https://deepwiki.com/*",
+    "https://api.devin.ai/ada/query/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -17,9 +20,15 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://deepwiki.com/search/*"],
+      "matches": ["https://deepwiki.com/search/*", "https://deepwiki.com/*"],
       "js": ["content.js"],
       "run_at": "document_end"
+    },
+    {
+      "matches": ["https://deepwiki.com/*"],
+      "js": ["pageWorldProbe.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "side_panel": {

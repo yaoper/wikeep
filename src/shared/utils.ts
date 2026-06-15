@@ -1,8 +1,11 @@
-import type { Conversation, Message } from './types';
-import type { RuntimeCommand, RuntimeResponse } from './messages';
+import type { Conversation, Message } from "./types";
+import type { RuntimeCommand, RuntimeResponse } from "./messages";
 
 export function normalizeText(value: string): string {
-  return value.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function clipText(value: string, maxLength: number): string {
@@ -23,12 +26,17 @@ export function stableHash(value: string): string {
   return Math.abs(hash >>> 0).toString(16);
 }
 
-export function buildConversationId(sourceSessionId: string | undefined, sourceUrl: string): string {
-  return sourceSessionId ? `deepwiki:${sourceSessionId}` : `deepwiki:${stableHash(sourceUrl)}`;
+export function buildConversationId(
+  sourceSessionId: string | undefined,
+  sourceUrl: string,
+): string {
+  return sourceSessionId
+    ? `deepwiki:${sourceSessionId}`
+    : `deepwiki:${stableHash(sourceUrl)}`;
 }
 
 export function buildSnippet(text: string, keyword: string): string {
-  const normalizedText = text.replace(/\s+/g, ' ').trim();
+  const normalizedText = text.replace(/\s+/g, " ").trim();
   const normalizedKeyword = keyword.trim().toLowerCase();
 
   if (!normalizedText || !normalizedKeyword) {
@@ -43,9 +51,12 @@ export function buildSnippet(text: string, keyword: string): string {
   }
 
   const start = Math.max(0, matchIndex - 40);
-  const end = Math.min(normalizedText.length, matchIndex + normalizedKeyword.length + 60);
-  const prefix = start > 0 ? '…' : '';
-  const suffix = end < normalizedText.length ? '…' : '';
+  const end = Math.min(
+    normalizedText.length,
+    matchIndex + normalizedKeyword.length + 60,
+  );
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < normalizedText.length ? "…" : "";
 
   return `${prefix}${normalizedText.slice(start, end)}${suffix}`;
 }
@@ -59,37 +70,45 @@ export function ensureErrorMessage(error: unknown): string {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  user: 'User',
-  assistant: 'Assistant',
-  system: 'System',
-  unknown: 'Unknown'
+  user: "User",
+  assistant: "Assistant",
+  system: "System",
+  unknown: "Unknown",
 };
 
-function sanitizeFilename(text: string): string {
-  return text
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 50) || 'session';
+export function sanitizeFilename(text: string): string {
+  return (
+    text
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 50) || "session"
+  );
 }
 
-export function formatConversationAsMarkdown(conversation: Conversation, messages: Message[]): string {
+export function formatConversationAsMarkdown(
+  conversation: Conversation,
+  messages: Message[],
+): string {
   const lines: string[] = [];
-  const question = normalizeText(conversation.question) || 'Unrecognized question';
+  const question =
+    normalizeText(conversation.question) || "Unrecognized question";
   const repoNames = conversation.metadata?.repoNames ?? [];
 
   lines.push(`# ${question}`);
-  lines.push('');
+  lines.push("");
 
   if (repoNames.length > 0) {
-    lines.push(`- **Repository**: ${repoNames.join(', ')}`);
+    lines.push(`- **Repository**: ${repoNames.join(", ")}`);
   }
 
   lines.push(`- **Source**: ${conversation.sourceUrl}`);
-  lines.push(`- **Saved at**: ${new Date(conversation.updatedAt).toLocaleString('en-US')}`);
-  lines.push('');
-  lines.push('---');
-  lines.push('');
+  lines.push(
+    `- **Saved at**: ${new Date(conversation.updatedAt).toLocaleString("en-US")}`,
+  );
+  lines.push("");
+  lines.push("---");
+  lines.push("");
 
   for (const message of messages) {
     const role = ROLE_LABELS[message.role] ?? message.role;
@@ -100,33 +119,46 @@ export function formatConversationAsMarkdown(conversation: Conversation, message
     }
 
     lines.push(`## ${role}`);
-    lines.push('');
+    lines.push("");
     lines.push(content);
-    lines.push('');
-    lines.push('---');
-    lines.push('');
+    lines.push("");
+    lines.push("---");
+    lines.push("");
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export function buildMarkdownFilename(conversation: Conversation): string {
-  const question = normalizeText(conversation.question) || 'session';
+  const question = normalizeText(conversation.question) || "session";
   const date = new Date(conversation.updatedAt).toISOString().slice(0, 10);
   return `wikeep-${sanitizeFilename(question)}-${date}.md`;
 }
 
+export function debounce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  ms: number,
+) {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return (...args: A) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
 export async function sendRuntimeMessage<TResponse, TPayload = unknown>(
   command: RuntimeCommand,
-  payload?: TPayload
+  payload?: TPayload,
 ): Promise<TResponse> {
   const response = (await chrome.runtime.sendMessage({
     command,
-    payload
+    payload,
   })) as RuntimeResponse<TResponse>;
 
   if (!response.ok) {
-    throw new Error(response.error?.message ?? `Runtime command failed: ${command}`);
+    throw new Error(
+      response.error?.message ?? `Runtime command failed: ${command}`,
+    );
   }
 
   return response.data as TResponse;

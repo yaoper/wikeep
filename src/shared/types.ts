@@ -1,5 +1,5 @@
-export type MessageRole = 'user' | 'assistant' | 'system' | 'unknown';
-export type CaptureMethod = 'api' | 'dom';
+export type MessageRole = "user" | "assistant" | "system" | "unknown";
+export type CaptureMethod = "api" | "dom";
 
 export interface ConversationMetadata {
   repoNames?: string[];
@@ -15,11 +15,12 @@ export interface MessageMetadata {
   engineId?: string;
   citations?: MessageCitation[];
   sourceResponseTypes?: string[];
+  hasDiagram?: boolean;
 }
 
 export interface Conversation {
   id: string;
-  source: 'deepwiki';
+  source: "deepwiki";
   question: string;
   sourceUrl: string;
   sourceSessionId?: string;
@@ -46,8 +47,9 @@ export interface Message {
 
 export interface Settings {
   autoCaptureEnabled: boolean;
-  preferredPanel: 'sidePanel' | 'popup';
+  preferredPanel: "sidePanel" | "popup";
   hasSeenPrivacyNotice: boolean;
+  autoRefreshWikiPages: boolean;
   schemaVersion: number;
 }
 
@@ -106,14 +108,14 @@ export interface ExistingCaptureLookupResult {
 }
 
 export type CaptureStatusReason =
-  | 'idle'
-  | 'not_deepwiki_page'
-  | 'auto_capture_disabled'
-  | 'already_saved'
-  | 'api_fetch_failed'
-  | 'dom_not_ready'
-  | 'unsupported_dom_structure'
-  | 'storage_error';
+  | "idle"
+  | "not_deepwiki_page"
+  | "auto_capture_disabled"
+  | "already_saved"
+  | "api_fetch_failed"
+  | "dom_not_ready"
+  | "unsupported_dom_structure"
+  | "storage_error";
 
 export interface CaptureStatus {
   supported: boolean;
@@ -130,13 +132,73 @@ export interface CaptureStatus {
   repoNames?: string[];
 }
 
+export type DeepWikiRouteKind = "session" | "wiki" | "other";
+
+export interface WikiPage {
+  id: string;
+  source: "deepwiki-wiki";
+  owner: string;
+  repo: string;
+  repoFullName: string;
+  sectionPath?: string;
+  hasDiagrams?: boolean;
+  title: string;
+  url: string;
+  markdown: string;
+  contentHash: string;
+  indexedCommit?: string;
+  relatedSections?: string[];
+  wordCount: number;
+  createdAt: number;
+  updatedAt: number;
+  lastCheckedAt: number;
+  isStale?: boolean;
+  schemaVersion: number;
+}
+
+export interface WikiPageSnapshot {
+  url: string;
+  owner: string;
+  repo: string;
+  sectionPath?: string;
+  title: string;
+  markdown: string;
+  contentHash: string;
+  indexedCommit?: string;
+  relatedSections?: string[];
+  wordCount: number;
+  hasDiagrams?: boolean;
+  capturedAt: number;
+}
+
+export interface WikiPageFingerprint {
+  url: string;
+  contentHash: string;
+  indexedCommit?: string;
+}
+
+export type WikiPageState =
+  | "not_saved"
+  | "saved_fresh"
+  | "saved_stale"
+  | "updated";
+
+export interface WikiPageTabState {
+  url: string;
+  state: WikiPageState;
+  pageId?: string;
+  title?: string;
+}
+
 export interface ActiveTabContext {
   tabId?: number;
   title?: string;
   url?: string;
   supported: boolean;
+  routeKind?: DeepWikiRouteKind;
   queryId?: string;
   status?: CaptureStatus;
+  wikiState?: WikiPageTabState;
 }
 
 export interface BackupData {
@@ -144,4 +206,5 @@ export interface BackupData {
   exportedAt: number;
   conversations: Conversation[];
   messages: Message[];
+  pages?: WikiPage[];
 }

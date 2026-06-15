@@ -1,15 +1,16 @@
-import type { CapturePayload, MessageCitation } from '../shared/types';
-import { normalizeText } from '../shared/utils';
+import type { CapturePayload, MessageCitation } from "../shared/types";
+import { normalizeText } from "../shared/utils";
 import type {
   DeepWikiChunkEvent,
   DeepWikiQuery,
   DeepWikiQuerySession,
-  DeepWikiReferenceEvent
-} from './deepwikiTypes';
+  DeepWikiReferenceEvent,
+} from "./deepwikiTypes";
 
-const API_BASE_URL = 'https://api.devin.ai';
-const DEEPWIKI_HOST = 'deepwiki.com';
-const RELEVANT_CONTEXT_PATTERN = /<relevant_context>[\s\S]*?<\/relevant_context>/gi;
+const API_BASE_URL = "https://api.devin.ai";
+const DEEPWIKI_HOST = "deepwiki.com";
+const RELEVANT_CONTEXT_PATTERN =
+  /<relevant_context>[\s\S]*?<\/relevant_context>/gi;
 
 export function extractQueryIdFromUrl(url: string): string | null {
   try {
@@ -27,21 +28,25 @@ export function extractQueryIdFromUrl(url: string): string | null {
 }
 
 export function stripRelevantContext(value: string): string {
-  return normalizeText(value.replace(RELEVANT_CONTEXT_PATTERN, ''));
+  return normalizeText(value.replace(RELEVANT_CONTEXT_PATTERN, ""));
 }
 
-function isChunkEvent(event: DeepWikiQuery['response'][number]): event is DeepWikiChunkEvent {
-  return event.type === 'chunk' && typeof event.data === 'string';
+function isChunkEvent(
+  event: DeepWikiQuery["response"][number],
+): event is DeepWikiChunkEvent {
+  return event.type === "chunk" && typeof event.data === "string";
 }
 
-function isReferenceEvent(event: DeepWikiQuery['response'][number]): event is DeepWikiReferenceEvent {
+function isReferenceEvent(
+  event: DeepWikiQuery["response"][number],
+): event is DeepWikiReferenceEvent {
   return (
-    event.type === 'reference' &&
-    typeof event.data === 'object' &&
+    event.type === "reference" &&
+    typeof event.data === "object" &&
     event.data !== null &&
-    'file_path' in event.data &&
-    'range_start' in event.data &&
-    'range_end' in event.data
+    "file_path" in event.data &&
+    "range_start" in event.data &&
+    "range_end" in event.data
   );
 }
 
@@ -49,6 +54,7 @@ function normalizeAssistantText(query: DeepWikiQuery): {
   content: string;
   citations: MessageCitation[];
   responseTypes: string[];
+  hasDiagram: boolean;
 } {
   const visibleParts: string[] = [];
   const allChunks: string[] = [];
@@ -59,12 +65,12 @@ function normalizeAssistantText(query: DeepWikiQuery): {
   for (const event of query.response) {
     responseTypes.add(event.type);
 
-    if (event.type === 'thoughts_start') {
+    if (event.type === "thoughts_start") {
       inThoughts = true;
       continue;
     }
 
-    if (event.type === 'thoughts_end') {
+    if (event.type === "thoughts_end") {
       inThoughts = false;
       continue;
     }
@@ -81,27 +87,30 @@ function normalizeAssistantText(query: DeepWikiQuery): {
       citations.push({
         filePath: event.data.file_path,
         rangeStart: event.data.range_start,
-        rangeEnd: event.data.range_end
+        rangeEnd: event.data.range_end,
       });
     }
   }
 
-  let content = normalizeText(visibleParts.join(''));
+  let content = normalizeText(visibleParts.join(""));
 
   if (!content) {
-    const fallback = allChunks.join('');
-    const splitBySearchMarker = fallback.split('\n> Searching codebase...\n');
+    const fallback = allChunks.join("");
+    const splitBySearchMarker = fallback.split("\n> Searching codebase...\n");
     content = normalizeText(splitBySearchMarker.at(-1) ?? fallback);
   }
 
   return {
     content,
     citations,
-    responseTypes: [...responseTypes]
+    responseTypes: [...responseTypes],
+    hasDiagram: /```mermaid/.test(content),
   };
 }
 
-export async function fetchDeepWikiSession(queryId: string): Promise<DeepWikiQuerySession> {
+export async function fetchDeepWikiSession(
+  queryId: string,
+): Promise<DeepWikiQuerySession> {
   const response = await fetch(`${API_BASE_URL}/ada/query/${queryId}`);
 
   if (!response.ok) {
@@ -113,7 +122,7 @@ export async function fetchDeepWikiSession(queryId: string): Promise<DeepWikiQue
 
 export function buildCapturePayloadFromDeepWikiSession(
   session: DeepWikiQuerySession,
-  sourceUrl: string
+  sourceUrl: string,
 ): { snapshot: CapturePayload; pending: boolean } {
   const sourceSessionId = extractQueryIdFromUrl(sourceUrl) ?? undefined;
   const sourceHost = new URL(sourceUrl).host;
@@ -126,14 +135,14 @@ export function buildCapturePayloadFromDeepWikiSession(
 
     if (userQuery) {
       messages.push({
-        role: 'user' as const,
+        role: "user" as const,
         content: userQuery,
         order,
         externalId: `${query.message_id}:user`,
         metadata: {
           engineId: query.engine_id,
-          sourceResponseTypes: query.response.map((event) => event.type)
-        }
+          sourceResponseTypes: query.response.map((event) => event.type),
+        },
       });
       order += 1;
     }
@@ -142,28 +151,35 @@ export function buildCapturePayloadFromDeepWikiSession(
 
     if (assistant.content) {
       messages.push({
-        role: 'assistant' as const,
+        role: "assistant" as const,
         content: assistant.content,
         order,
         externalId: `${query.message_id}:assistant`,
         metadata: {
           engineId: query.engine_id,
           citations: assistant.citations,
-          sourceResponseTypes: assistant.responseTypes
-        }
+          sourceResponseTypes: assistant.responseTypes,
+          hasDiagram: assistant.hasDiagram,
+        },
       });
       order += 1;
     }
 
-    if (query.state === 'pending') {
+    if (query.state === "pending") {
       pending = true;
     }
   }
 
   const repoNames = Array.from(
-    new Set(session.queries.flatMap((query) => query.repo_names ?? []).filter(Boolean))
+    new Set(
+      session.queries
+        .flatMap((query) => query.repo_names ?? [])
+        .filter(Boolean),
+    ),
   );
-  const fallbackTitle = messages.find((message) => message.role === 'user')?.content ?? 'Untitled conversation';
+  const fallbackTitle =
+    messages.find((message) => message.role === "user")?.content ??
+    "Untitled conversation";
   const title = stripRelevantContext(session.title) || fallbackTitle;
 
   return {
@@ -173,11 +189,11 @@ export function buildCapturePayloadFromDeepWikiSession(
       sourceHost,
       sourceSessionId,
       metadata: {
-        repoNames
+        repoNames,
       },
       messages,
-      capturedAt: Date.now()
+      capturedAt: Date.now(),
     },
-    pending
+    pending,
   };
 }
