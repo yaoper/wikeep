@@ -5,7 +5,8 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { nixpkgs, ... }:
+  outputs =
+    { nixpkgs, ... }:
     let
       systems = [
         "aarch64-darwin"
@@ -20,8 +21,7 @@
         let
           pkgs = import nixpkgs { inherit system; };
           node = pkgs.nodejs_22;
-          linuxBrowserPackages =
-            pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.chromium ];
+          linuxBrowserPackages = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.chromium ];
 
           npmInstall = ''
             if [ -f package-lock.json ]; then
@@ -97,8 +97,8 @@
             '';
           };
 
-          wikeep-open-chrome = pkgs.writeShellApplication {
-            name = "wikeep-open-chrome";
+          wikeep-open-browser = pkgs.writeShellApplication {
+            name = "wikeep-open-browser";
             runtimeInputs = [ node ] ++ linuxBrowserPackages;
             text = ''
               set -euo pipefail
@@ -115,19 +115,36 @@
 
               PROFILE_DIR="$PWD/.chrome-dev-profile"
               EXTENSION_DIR="$PWD/dist"
+              # Remote debugging port for Chrome DevTools MCP (override: DEBUG_PORT=... wikeep-open-browser)
+              DEBUG_PORT="''${DEBUG_PORT:-9222}"
               FLAGS=(
+                "--remote-debugging-port=$DEBUG_PORT"
                 "--user-data-dir=$PROFILE_DIR"
                 "--disable-extensions-except=$EXTENSION_DIR"
                 "--load-extension=$EXTENSION_DIR"
                 "chrome://extensions"
               )
 
+              echo "Launching Chromium-based browser with Wikeep (dist/) loaded."
+              echo "Remote debugging on http://127.0.0.1:$DEBUG_PORT"
+              echo "Point chrome-devtools-mcp at it with: --browserUrl=http://127.0.0.1:$DEBUG_PORT"
+
               if [ "$(uname)" = "Darwin" ]; then
                 if [ -d "/Applications/Google Chrome.app" ]; then
                   exec open -na "Google Chrome" --args "''${FLAGS[@]}"
                 fi
-                echo "Google Chrome.app not found in /Applications."
-                echo "Install Chrome, or load dist/ manually (see PLAN.md)."
+                if [ -d "$HOME/Applications/Google Chrome.app" ]; then
+                  exec open -na "$HOME/Applications/Google Chrome.app" --args "''${FLAGS[@]}"
+                fi
+                if [ -d "/Applications/Helium.app" ]; then
+                  exec open -na "/Applications/Helium.app" --args "''${FLAGS[@]}"
+                fi
+                if [ -d "$HOME/Applications/Helium.app" ]; then
+                  exec open -na "$HOME/Applications/Helium.app" --args "''${FLAGS[@]}"
+                fi
+                echo "No supported Chromium-based browser app found in /Applications or $HOME/Applications."
+                echo "Tried: Google Chrome.app, Helium.app"
+                echo "Install one of them, or load dist/ manually (see PLAN.md)."
                 exit 1
               fi
 
@@ -142,6 +159,16 @@
               exit 1
             '';
           };
+
+          wikeep-open-chrome = pkgs.writeShellApplication {
+            name = "wikeep-open-chrome";
+            runtimeInputs = [ wikeep-open-browser ];
+            text = ''
+              set -euo pipefail
+              echo "wikeep-open-chrome is deprecated; using wikeep-open-browser instead."
+              exec wikeep-open-browser
+            '';
+          };
         in
         {
           default = pkgs.mkShell {
@@ -153,8 +180,10 @@
               pkgs.unzip
               wikeep-check
               wikeep-build
+              wikeep-open-browser
               wikeep-open-chrome
-            ] ++ linuxBrowserPackages;
+            ]
+            ++ linuxBrowserPackages;
 
             shellHook = ''
               echo "Wikeep dev shell"
@@ -167,7 +196,8 @@
               echo "  npm run build          build into dist/"
               echo "  wikeep-check           install + typecheck + test + build + manifest checks"
               echo "  wikeep-build           full validation + build + ZIP"
-              echo "  wikeep-open-chrome     launch Chrome with dist/ loaded"
+              echo "  wikeep-open-browser    launch browser with dist/ loaded + remote debug (port 9222)"
+              echo "  wikeep-open-chrome     compatibility alias for wikeep-open-browser"
             '';
           };
         }
