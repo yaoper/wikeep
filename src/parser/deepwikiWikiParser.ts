@@ -94,8 +94,14 @@ export function parseWikiPage(
     return null;
   }
 
+  const title = extractTitle(document, root);
   const sanitized = sanitizeForMarkdown(root);
-  const rscMarkdown = rscRaw ? extractWikiMarkdownFromRsc(rscRaw) : null;
+  const rscMarkdown = rscRaw
+    ? extractWikiMarkdownFromRsc(rscRaw, {
+        title,
+        sectionPath: parts.sectionPath,
+      })
+    : null;
   const markdown =
     rscMarkdown ?? elementToMarkdown(sanitized, { sourceUrl: url });
   const markdownSource = rscMarkdown ? "rsc" : "dom";
@@ -106,7 +112,7 @@ export function parseWikiPage(
     owner: parts.owner,
     repo: parts.repo,
     sectionPath: parts.sectionPath,
-    title: extractTitle(document, root),
+    title,
     markdown,
     markdownSource,
     contentHash: stableHash(cleanedText),
