@@ -18,7 +18,11 @@
     }
   }
 
+  let hookInstalled = false;
+
   function installPushHook() {
+    if (hookInstalled) return;
+
     const target = (window as unknown as { __next_f?: unknown[] }).__next_f;
     if (!Array.isArray(target)) return;
 
@@ -28,9 +32,16 @@
       post();
       return result;
     };
+
+    hookInstalled = true;
   }
 
   installPushHook();
+  const hookTimer = window.setInterval(() => {
+    installPushHook();
+    if (hookInstalled) window.clearInterval(hookTimer);
+  }, 100);
+
   post();
   let t: number | undefined;
   new MutationObserver(() => {
