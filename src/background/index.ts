@@ -460,6 +460,7 @@ async function requestWikiPageSnapshot(
 
 async function saveWikiPage(
   payload: SaveWikiPagePayload,
+  options: { stateAfterSave?: WikiPageState } = {},
 ): Promise<SaveWikiPageResult> {
   const tabId = payload.tabId;
   const snapshot =
@@ -478,7 +479,7 @@ async function saveWikiPage(
         snapshot.url,
         result.pageId,
         snapshot.title,
-        "saved_fresh",
+        options.stateAfterSave ?? "saved_fresh",
       ),
     );
   }
@@ -489,6 +490,39 @@ async function saveWikiPage(
     created: result.created,
     title: snapshot.title,
   };
+}
+
+async function resolveWikiRefreshTab(pageId: string): Promise<number> {
+  const page = await getWikiPage(pageId);
+  if (!page) {
+    throw new Error("Saved wiki page not found.");
+  }
+
+  const tabs = await chrome.tabs.query({ url: page.url });
+  const tabId = tabs.find((tab) => typeof tab.id === "number")?.id;
+  if (!tabId) {
+    throw new Error(
+      "Open the wiki page in a browser tab first, then try again.",
+    );
+  }
+
+  return tabId;
+}
+
+async function handleRefreshWikiPage(
+  payload: RefreshWikiPagePayload,
+  sender: chrome.runtime.MessageSender,
+): Promise<SaveWikiPageResult> {
+  const tabId =
+    payload.tabId ??
+    (payload.pageId
+      ? await resolveWikiRefreshTab(payload.pageId)
+      : sender.tab?.id);
+  if (!tabId) {
+    throw new Error("No tab available to refresh this wiki page.");
+  }
+
+  return saveWikiPage({ tabId }, { stateAfterSave: "updated" });
 }
 
 async function handleWikiPageDetected(
@@ -520,10 +554,30 @@ async function handleWikiPageDetected(
 
   if (state === "saved_fresh") {
     await touchWikiPage(url);
-  } else {
-    await markWikiPageStale(url);
+    const page = await getWikiPage(existing.pageId!);
+    await emitWikiPageStateChanged(
+      tabId,
+      getWikiPageStateForUrl(
+        url,
+        existing.pageId,
+        page?.title ?? sender.tab?.title,
+        state,
+      ),
+    );
+    return;
   }
 
+  const settings = await getSettings();
+  if (settings.autoRefreshWikiPages) {
+    try {
+      await saveWikiPage({ tabId }, { stateAfterSave: "updated" });
+      return;
+    } catch {
+      // fall through to stale marker if refresh fails
+    }
+  }
+
+  await markWikiPageStale(url);
   const page = await getWikiPage(existing.pageId!);
   await emitWikiPageStateChanged(
     tabId,
@@ -531,7 +585,7 @@ async function handleWikiPageDetected(
       url,
       existing.pageId,
       page?.title ?? sender.tab?.title,
-      state,
+      "saved_stale",
     ),
   );
 }
@@ -702,11 +756,7 @@ async function handleRuntimeCommand(
     case "DELETE_WIKI_PAGE":
       return deleteWikiPage((payload as DeleteWikiPagePayload).pageId);
     case "REFRESH_WIKI_PAGE":
-      return saveWikiPage({
-        tabId:
-          (payload as RefreshWikiPagePayload | undefined)?.tabId ??
-          sender.tab?.id,
-      });
+      return handleRefreshWikiPage(payload as RefreshWikiPagePayload, sender);
     case "EXPORT_WIKI_PAGE_MARKDOWN":
       return exportWikiPageMarkdown(payload as ExportWikiPageMarkdownPayload);
     case "ACTIVE_TAB_CONTEXT_CHANGED":

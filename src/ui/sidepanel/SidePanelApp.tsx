@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SearchBox } from "../components/SearchBox";
 import { ConversationList } from "../components/ConversationList";
 import { EmptyState } from "../components/EmptyState";
+import { WikiPageList } from "../components/WikiPageList";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
 import type {
@@ -10,6 +11,7 @@ import type {
   CaptureResult,
   ConversationListItem,
   Settings,
+  WikiPage,
   WikiPageTabState,
 } from "../../shared/types";
 import { ensureErrorMessage, sendRuntimeMessage } from "../../shared/utils";
@@ -17,11 +19,14 @@ import type {
   ActiveTabContextChangedPayload,
   CaptureDeepWikiSessionPayload,
   DeleteConversationPayload,
+  DeleteWikiPagePayload,
   ExportConversationMarkdownResult,
   ExportDataResult,
+  ExportWikiPageMarkdownResult,
   ImportDataPayload,
   ImportDataResult,
   ListConversationsPayload,
+  ListWikiPagesPayload,
   RuntimeRequest,
   RuntimeResponse,
   SaveWikiPageResult,
@@ -225,6 +230,7 @@ export function SidePanelApp() {
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     [],
   );
+  const [wikiPages, setWikiPages] = useState<WikiPage[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [contextLoading, setContextLoading] = useState(true);
@@ -285,6 +291,25 @@ export function SidePanelApp() {
     }
   }
 
+  async function loadWikiPages(
+    nextKeyword?: string,
+    options?: { silent?: boolean },
+  ) {
+    try {
+      const items = await sendRuntimeMessage<WikiPage[], ListWikiPagesPayload>(
+        "LIST_WIKI_PAGES",
+        {
+          keyword: nextKeyword,
+        },
+      );
+      setWikiPages(items);
+    } catch (error) {
+      if (!options?.silent) {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+
   async function loadSettings() {
     const nextSettings = await sendRuntimeMessage<Settings>("GET_SETTINGS");
     setSettings(nextSettings);
@@ -293,12 +318,14 @@ export function SidePanelApp() {
   async function refreshPanel(options?: { silent?: boolean }) {
     await Promise.all([
       loadConversations(debouncedKeyword, options),
+      loadWikiPages(debouncedKeyword, options),
       loadActiveContext(options),
     ]);
   }
 
   useEffect(() => {
     void loadConversations(debouncedKeyword);
+    void loadWikiPages(debouncedKeyword, { silent: true });
   }, [debouncedKeyword]);
 
   useEffect(() => {
@@ -428,6 +455,19 @@ export function SidePanelApp() {
     setInfoMessage(null);
     await sendRuntimeMessage("CLEAR_ALL_DATA");
     await loadConversations(debouncedKeyword);
+    await loadWikiPages(debouncedKeyword, { silent: true });
+  }
+
+  async function handleDeleteWikiPage(pageId: string) {
+    if (!window.confirm("Delete this wiki page? This cannot be undone.")) {
+      return;
+    }
+
+    setInfoMessage(null);
+    await sendRuntimeMessage<void, DeleteWikiPagePayload>("DELETE_WIKI_PAGE", {
+      pageId,
+    });
+    await loadWikiPages(debouncedKeyword);
   }
 
   async function handleToggleAutoCapture() {
@@ -443,6 +483,20 @@ export function SidePanelApp() {
     });
     setSettings(nextSettings);
     await loadActiveContext();
+  }
+
+  async function handleToggleAutoRefreshWikiPages() {
+    if (!settings) {
+      return;
+    }
+
+    const nextSettings = await sendRuntimeMessage<
+      Settings,
+      UpdateSettingsPayload
+    >("UPDATE_SETTINGS", {
+      patch: { autoRefreshWikiPages: !settings.autoRefreshWikiPages },
+    });
+    setSettings(nextSettings);
   }
 
   async function handleCopySourceUrl(sourceUrl: string) {
@@ -473,6 +527,29 @@ export function SidePanelApp() {
       anchor.click();
       URL.revokeObjectURL(url);
       setInfoMessage("Markdown file exported");
+    } catch (error) {
+      setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
+    }
+  }
+
+  async function handleExportWikiMarkdown(pageId: string) {
+    setErrorMessage(null);
+
+    try {
+      const result = await sendRuntimeMessage<
+        ExportWikiPageMarkdownResult,
+        { pageId: string }
+      >("EXPORT_WIKI_PAGE_MARKDOWN", { pageId });
+      const blob = new Blob([result.markdown], {
+        type: "text/markdown;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setInfoMessage("Wiki Markdown file exported");
     } catch (error) {
       setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
     }
@@ -514,6 +591,7 @@ export function SidePanelApp() {
               ? "Wiki page refreshed."
               : "Wiki page saved again.",
         );
+        await loadWikiPages(debouncedKeyword, { silent: true });
         return;
       } catch (error) {
         setErrorMessage(`Save failed: ${ensureErrorMessage(error)}`);
@@ -653,6 +731,7 @@ export function SidePanelApp() {
       >("IMPORT_DATA", { backup });
       setInfoMessage(`Imported ${result.conversationCount} conversations.`);
       await loadConversations(debouncedKeyword);
+      await loadWikiPages(debouncedKeyword, { silent: true });
     } catch (error) {
       setErrorMessage(`Import failed: ${ensureErrorMessage(error)}`);
     } finally {
@@ -666,6 +745,7 @@ export function SidePanelApp() {
     ? "Please wait…"
     : getStatusSubtitle(activeContext);
   const showRecentLabel = !keyword.trim() && conversations.length > 0;
+  const showWikiLabel = wikiPages.length > 0;
   const showBack = view === "settings" || view === "backup";
   const toolbarTitle =
     view === "settings"
@@ -878,6 +958,31 @@ export function SidePanelApp() {
 
             {settings ? (
               <div className="settings-section">
+                <div className="settings__section-title">Wiki pages</div>
+                <div className="settings__item settings__item--compact">
+                  <div className="settings__item-content">
+                    <div className="settings__label">
+                      Auto-refresh saved wiki pages
+                    </div>
+                    <div className="settings__help">
+                      If a saved wiki page changes, refresh it automatically
+                      when the page is open.
+                    </div>
+                  </div>
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings.autoRefreshWikiPages}
+                      onChange={() => void handleToggleAutoRefreshWikiPages()}
+                    />
+                    <span className="toggle__track" />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {settings ? (
+              <div className="settings-section">
                 <div className="settings__section-title">Data management</div>
                 <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
@@ -950,27 +1055,50 @@ export function SidePanelApp() {
                 title="Loading history"
                 description="Wikeep is reading local conversation records."
               />
-            ) : conversations.length === 0 ? (
+            ) : conversations.length === 0 && wikiPages.length === 0 ? (
               <EmptyState
                 title="No history yet"
                 description={
                   keyword
-                    ? "No conversations match your search."
-                    : "Open a DeepWiki session page and Wikeep will save history automatically."
+                    ? "No saved sessions or wiki pages match your search."
+                    : "Open a DeepWiki session or wiki page and Wikeep will help you save it locally."
                 }
               />
             ) : (
               <>
-                {showRecentLabel ? (
-                  <div className="panel__section-label">Recent</div>
+                {conversations.length > 0 ? (
+                  <>
+                    {showRecentLabel ? (
+                      <div className="panel__section-label">
+                        Recent sessions
+                      </div>
+                    ) : null}
+                    <ConversationList
+                      items={conversations}
+                      onDelete={(id) => void handleDeleteConversation(id)}
+                      onCopyUrl={(url) => void handleCopySourceUrl(url)}
+                      onOpenUrl={(url) => window.open(url, "_blank")}
+                      onExportMarkdown={(id) => void handleExportMarkdown(id)}
+                    />
+                  </>
                 ) : null}
-                <ConversationList
-                  items={conversations}
-                  onDelete={(id) => void handleDeleteConversation(id)}
-                  onCopyUrl={(url) => void handleCopySourceUrl(url)}
-                  onOpenUrl={(url) => window.open(url, "_blank")}
-                  onExportMarkdown={(id) => void handleExportMarkdown(id)}
-                />
+
+                {wikiPages.length > 0 ? (
+                  <>
+                    {showWikiLabel ? (
+                      <div className="panel__section-label">Wiki pages</div>
+                    ) : null}
+                    <WikiPageList
+                      items={wikiPages}
+                      onDelete={(id) => void handleDeleteWikiPage(id)}
+                      onCopyUrl={(url) => void handleCopySourceUrl(url)}
+                      onOpenUrl={(url) => window.open(url, "_blank")}
+                      onExportMarkdown={(id) =>
+                        void handleExportWikiMarkdown(id)
+                      }
+                    />
+                  </>
+                ) : null}
               </>
             )}
           </>
