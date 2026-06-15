@@ -115,6 +115,17 @@ function sliceSinglePageMarkdown(
   return pageMarkdown;
 }
 
+function extractMarkdownBody(joined: string): string | null {
+  if (!joined) return null;
+
+  const unescaped = decodeRscText(joined);
+  const startIdx = unescaped.search(/(^|\n)#{1,2} \S/);
+  if (startIdx === -1) return null;
+
+  const body = unescaped.slice(startIdx).trim();
+  return /#{1,3} /.test(body) && body.length > 200 ? body : null;
+}
+
 /**
  * Best-effort recovery of one current wiki page's source Markdown from the raw
  * RSC string delivered by the MAIN-world probe. DeepWiki's RSC payload can
@@ -128,17 +139,22 @@ export function extractWikiMarkdownFromRsc(
   joined: string,
   options: WikiRscExtractionOptions = {},
 ): string | null {
-  if (!joined) return null;
+  const body = extractMarkdownBody(joined);
+  if (!body) return null;
 
-  const unescaped = decodeRscText(joined);
-  const startIdx = unescaped.search(/(^|\n)#{1,2} \S/);
-  if (startIdx === -1) return null;
-
-  const body = unescaped.slice(startIdx);
   const pageMarkdown = sliceSinglePageMarkdown(body, options);
   if (!pageMarkdown) return null;
 
   return /#{1,3} /.test(pageMarkdown) && pageMarkdown.length > 200
     ? pageMarkdown
     : null;
+}
+
+/**
+ * Recover the full repository wiki Markdown from the same RSC payload.
+ * This intentionally does NOT slice to the active page and is used only by the
+ * explicit "Save full wiki" button.
+ */
+export function extractFullWikiMarkdownFromRsc(joined: string): string | null {
+  return extractMarkdownBody(joined);
 }
