@@ -11,6 +11,11 @@ interface MarkdownHeading {
   text: string;
 }
 
+interface MarkdownRule {
+  index: number;
+  endIndex: number;
+}
+
 function decodeRscText(joined: string): string {
   return joined
     .replace(/\\n/g, "\n")
@@ -43,13 +48,59 @@ function isRepositoryOverview(options: WikiRscExtractionOptions): boolean {
   return title.endsWith("repository overview") || pathTitle.endsWith("repository overview");
 }
 
+function collectHorizontalRules(markdown: string): MarkdownRule[] {
+  const rules: MarkdownRule[] = [];
+  const re = /(?:^|\n)(?:-{3,}|\*{3,}|_{3,})\s*(?:\n|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(markdown))) {
+    const raw = match[0] ?? "";
+    const leadingNewline = raw.startsWith("\n") ? 1 : 0;
+    rules.push({
+      index: match.index + leadingNewline,
+      endIndex: match.index + raw.length,
+    });
+  }
+  return rules;
+}
+
+function hasSourcesBlock(markdown: string): boolean {
+  return /(?:^|\n)\s*(?:Sources?|References?)\s*:/i.test(markdown);
+}
+
+function hasChildSummaryHeading(markdown: string): boolean {
+  return /(?:^|\n)#{2,3}\s+\S/.test(markdown);
+}
+
 function trimRepositoryOverviewMarkdown(markdown: string): string {
   // DeepWiki overview pages can include child-page summaries after horizontal
-  // rules. For a unique page save, keep only the overview block above the first
-  // rule; child pages are saved separately by their own URLs.
-  const rule = /(?:^|\n)(?:-{3,}|\*{3,}|_{3,})\s*(?:\n|$)/.exec(markdown);
-  if (!rule) return markdown;
-  return markdown.slice(0, rule.index).trim();
+  // rules. However, some payloads may also include an earlier rule after the
+  // "Relevant source files" block. For a unique page save, keep the full
+  // overview body and trim only at the separator after the overview Sources
+  // block, which is where embedded child summaries begin.
+  const rules = collectHorizontalRules(markdown);
+  if (rules.length === 0) return markdown;
+
+  const afterSourcesRule = rules.find((rule) => {
+    const before = markdown.slice(0, rule.index);
+    const after = markdown.slice(rule.endIndex);
+    return hasSourcesBlock(before) && hasChildSummaryHeading(after);
+  });
+
+  if (afterSourcesRule) {
+    return markdown.slice(0, afterSourcesRule.index).trim();
+  }
+
+  // Fallback for older/variant DeepWiki markup: trim at the first separator
+  // that follows a substantial overview body and is followed by child headings.
+  // This avoids cutting immediately after "Relevant source files" when the real
+  // page text has not appeared yet.
+  const bodyBoundary = rules.find((rule) => {
+    const before = markdown.slice(0, rule.index).trim();
+    const after = markdown.slice(rule.endIndex);
+    return before.length > 800 && hasChildSummaryHeading(after);
+  });
+
+  return bodyBoundary ? markdown.slice(0, bodyBoundary.index).trim() : markdown;
 }
 
 function collectHeadings(markdown: string): MarkdownHeading[] {
@@ -132,8 +183,8 @@ function extractMarkdownBody(joined: string): string | null {
  * contain the whole wiki, so callers must pass the live page title/sectionPath;
  * this function slices from that page heading to the next same/higher-level
  * heading instead of returning the entire wiki bundle. Repository overview pages
- * are additionally trimmed at the first horizontal rule so child-page summaries
- * do not get saved as part of the overview.
+ * are additionally trimmed at the child-summary separator after the overview
+ * Sources block, preserving the real overview text above it.
  */
 export function extractWikiMarkdownFromRsc(
   joined: string,
