@@ -1,38 +1,20 @@
 import { extractQueryIdFromUrl } from "../api/deepwikiApi";
-import { parseDeepWikiDomSnapshot } from "../parser/deepwikiDomParser";
 import {
   fingerprintWikiPage,
+  parseFullWiki,
   parseWikiPage,
 } from "../parser/deepwikiWikiParser";
-import {
-  CAPTURE_DEBOUNCE_MS,
-  MAX_POLL_ATTEMPTS,
-  PENDING_POLL_MS,
-  SETTINGS_KEY,
-} from "../shared/constants";
+import { SETTINGS_KEY } from "../shared/constants";
 import type {
   CaptureDeepWikiSessionPayload,
-  CaptureDomSnapshotPayload,
   GetWikiPageSnapshotResult,
-  LookupConversationByQueryIdPayload,
   ReportPageStatusPayload,
   RuntimeRequest,
   RuntimeResponse,
-  SaveWikiPagePayload,
   WikiPageDetectedPayload,
 } from "../shared/messages";
-import type {
-  CapturePerformance,
-  CaptureResult,
-  CaptureStatus,
-  ExistingCaptureLookupResult,
-  Settings,
-} from "../shared/types";
-import {
-  debounce,
-  ensureErrorMessage,
-  sendRuntimeMessage,
-} from "../shared/utils";
+import type { CaptureResult, CaptureStatus, Settings } from "../shared/types";
+import { debounce, ensureErrorMessage, sendRuntimeMessage } from "../shared/utils";
 import { isWikiPageUrl } from "../shared/wikiUrl";
 
 let currentStatus: CaptureStatus = {
@@ -41,24 +23,10 @@ let currentStatus: CaptureStatus = {
   reason: "idle",
 };
 
-let observer: MutationObserver | null = null;
-let debounceTimer: number | null = null;
-let pollingTimer: number | null = null;
-let pollingAttempts = 0;
-let isCapturing = false;
 let wikiObserver: MutationObserver | null = null;
 let latestRscRaw: { url: string; raw: string } | null = null;
-let wikiMessageListenerRegistered = false;
-
-interface RunCaptureOptions {
-  force?: boolean;
-}
-
-interface DomCaptureOutcome {
-  result: CaptureResult | null;
-  domParseMs: number;
-  domPersistMs?: number;
-}
+let messageListenerRegistered = false;
+let isCapturing = false;
 
 function setStatus(partial: Partial<CaptureStatus>): void {
   currentStatus = {
@@ -76,136 +44,18 @@ function setStatus(partial: Partial<CaptureStatus>): void {
     .catch(() => undefined);
 }
 
-function getDurationMs(startedAt: number): number {
-  return Math.max(0, Math.round(performance.now() - startedAt));
-}
-
-function buildPerformance(
-  partial: Partial<CapturePerformance>,
-  captureStartedAt: number,
-): CapturePerformance {
-  return {
-    ...partial,
-    totalMs: getDurationMs(captureStartedAt),
-  };
-}
-
-function stopPolling(): void {
-  if (pollingTimer) {
-    window.clearInterval(pollingTimer);
-    pollingTimer = null;
-  }
-
-  pollingAttempts = 0;
-}
-
-function clearDebounceTimer(): void {
-  if (debounceTimer) {
-    window.clearTimeout(debounceTimer);
-    debounceTimer = null;
+async function loadSettings(): Promise<Settings> {
+  try {
+    return await sendRuntimeMessage<Settings>("GET_SETTINGS");
+  } catch {
+    const stored = await chrome.storage.local.get(SETTINGS_KEY);
+    return stored[SETTINGS_KEY] as Settings;
   }
 }
 
-function disconnectObserver(): void {
-  if (observer) {
-    observer.disconnect();
-    observer = null;
-  }
-}
-
-function startPolling(queryId: string): void {
-  if (pollingTimer) {
-    return;
-  }
-
-  pollingTimer = window.setInterval(() => {
-    pollingAttempts += 1;
-
-    if (pollingAttempts > MAX_POLL_ATTEMPTS) {
-      stopPolling();
-      return;
-    }
-
-    void runCapture(queryId);
-  }, PENDING_POLL_MS);
-}
-
-function stopAutoCapture(): void {
-  disconnectObserver();
-  clearDebounceTimer();
-  stopPolling();
-}
-
-async function captureViaApi(queryId: string): Promise<CaptureResult> {
-  return sendRuntimeMessage<CaptureResult, CaptureDeepWikiSessionPayload>(
-    "CAPTURE_DEEPWIKI_SESSION",
-    {
-      queryId,
-      sourceUrl: window.location.href,
-    },
-  );
-}
-
-async function lookupExistingCapture(
-  queryId: string,
-): Promise<ExistingCaptureLookupResult> {
-  return sendRuntimeMessage<
-    ExistingCaptureLookupResult,
-    LookupConversationByQueryIdPayload
-  >("LOOKUP_CAPTURE_BY_QUERY_ID", { queryId });
-}
-
-async function captureViaDom(): Promise<DomCaptureOutcome> {
-  const domParseStartedAt = performance.now();
-  const snapshot = parseDeepWikiDomSnapshot(document, window.location.href);
-  const domParseMs = getDurationMs(domParseStartedAt);
-
-  if (!snapshot) {
-    return {
-      result: null,
-      domParseMs,
-    };
-  }
-
-  const domPersistStartedAt = performance.now();
-  const result = await sendRuntimeMessage<
-    CaptureResult,
-    CaptureDomSnapshotPayload
-  >("CAPTURE_DOM_SNAPSHOT", {
-    snapshot,
-  });
-
-  return {
-    result,
-    domParseMs,
-    domPersistMs: getDurationMs(domPersistStartedAt),
-  };
-}
-
-async function runCapture(
-  queryId: string,
-  options: RunCaptureOptions = {},
-): Promise<void> {
-  if (isCapturing) {
-    return;
-  }
-
-  if (
-    !options.force &&
-    currentStatus.reason === "already_saved" &&
-    currentStatus.queryId === queryId
-  ) {
-    return;
-  }
-
+async function captureSession(queryId: string, force = false): Promise<CaptureStatus> {
+  if (isCapturing) return currentStatus;
   isCapturing = true;
-  const captureStartedAt = performance.now();
-  const shouldCheckExistingCapture =
-    !options.force &&
-    !(currentStatus.queryId === queryId && currentStatus.pending);
-  let localLookupMs: number | undefined;
-  let domParseMs: number | undefined;
-  let domPersistMs: number | undefined;
 
   setStatus({
     supported: true,
@@ -213,8 +63,8 @@ async function runCapture(
     queryId,
     sourceUrl: window.location.href,
     method: undefined,
-    pending: undefined,
-    reason: undefined,
+    pending: true,
+    reason: "idle",
     errorMessage: undefined,
     performance: undefined,
     existingConversationId: undefined,
@@ -222,148 +72,46 @@ async function runCapture(
   });
 
   try {
-    if (shouldCheckExistingCapture) {
-      const lookupStartedAt = performance.now();
-      const existingCapture = await lookupExistingCapture(queryId);
-      localLookupMs = getDurationMs(lookupStartedAt);
-
-      if (existingCapture.exists) {
-        stopAutoCapture();
-        setStatus({
-          active: false,
-          method: undefined,
-          lastCapturedAt: existingCapture.updatedAt,
-          pending: false,
-          reason: "already_saved",
-          errorMessage: undefined,
-          existingConversationId: existingCapture.conversationId,
-          repoNames: existingCapture.repoNames,
-          performance: buildPerformance({ localLookupMs }, captureStartedAt),
-        });
-        return;
-      }
+    const settings = await loadSettings();
+    if (!force && !settings.autoCaptureEnabled) {
+      setStatus({
+        active: false,
+        pending: false,
+        reason: "auto_capture_disabled",
+      });
+      return currentStatus;
     }
 
-    const domCapture = await captureViaDom();
-    const domResult = domCapture.result;
-    domParseMs = domCapture.domParseMs;
-    domPersistMs = domCapture.domPersistMs;
+    const result = await sendRuntimeMessage<
+      CaptureResult,
+      CaptureDeepWikiSessionPayload
+    >("CAPTURE_DEEPWIKI_SESSION", {
+      queryId,
+      sourceUrl: window.location.href,
+    });
 
-    if (domResult) {
-      setStatus({
-        method: "dom",
-        lastCapturedAt: domResult.savedAt,
-        pending: false,
-        reason: undefined,
-        errorMessage: undefined,
-        repoNames: domResult.repoNames,
-        performance: buildPerformance(
-          { localLookupMs, domParseMs, domPersistMs },
-          captureStartedAt,
-        ),
-      });
-    } else {
-      setStatus({
-        method: undefined,
-        pending: false,
-        reason: "dom_not_ready",
-        performance: buildPerformance(
-          { localLookupMs, domParseMs },
-          captureStartedAt,
-        ),
-      });
-    }
-
-    try {
-      const apiResult = await captureViaApi(queryId);
-      const apiPerformance = apiResult.performance;
-
-      setStatus({
-        active: true,
-        method: "api",
-        lastCapturedAt: apiResult.savedAt,
-        pending: apiResult.pending,
-        reason: undefined,
-        errorMessage: undefined,
-        repoNames: apiResult.repoNames,
-        performance: buildPerformance(
-          {
-            localLookupMs,
-            domParseMs,
-            domPersistMs,
-            apiFetchMs: apiPerformance?.apiFetchMs,
-            apiTransformMs: apiPerformance?.apiTransformMs,
-            apiPersistMs: apiPerformance?.apiPersistMs,
-          },
-          captureStartedAt,
-        ),
-      });
-
-      if (apiResult.pending) {
-        disconnectObserver();
-        clearDebounceTimer();
-        startPolling(queryId);
-      } else {
-        stopAutoCapture();
-      }
-    } catch (error) {
-      stopPolling();
-
-      if (!domResult) {
-        setStatus({
-          active: false,
-          method: undefined,
-          reason: "api_fetch_failed",
-          errorMessage: ensureErrorMessage(error),
-          performance: buildPerformance(
-            { localLookupMs, domParseMs },
-            captureStartedAt,
-          ),
-        });
-        return;
-      }
-
-      setStatus({
-        active: true,
-        pending: false,
-        reason: "api_fetch_failed",
-        errorMessage: ensureErrorMessage(error),
-        performance: buildPerformance(
-          { localLookupMs, domParseMs, domPersistMs },
-          captureStartedAt,
-        ),
-      });
-    }
+    setStatus({
+      active: result.pending,
+      method: result.method,
+      lastCapturedAt: result.savedAt,
+      pending: result.pending,
+      reason: undefined,
+      errorMessage: undefined,
+      repoNames: result.repoNames,
+      performance: result.performance,
+    });
   } catch (error) {
     setStatus({
       active: false,
-      reason: "storage_error",
+      pending: false,
+      reason: "api_fetch_failed",
       errorMessage: ensureErrorMessage(error),
-      performance: buildPerformance(
-        { localLookupMs, domParseMs, domPersistMs },
-        captureStartedAt,
-      ),
     });
   } finally {
     isCapturing = false;
   }
-}
 
-function setupObserver(queryId: string): void {
-  disconnectObserver();
-
-  observer = new MutationObserver(() => {
-    clearDebounceTimer();
-
-    debounceTimer = window.setTimeout(() => {
-      void runCapture(queryId);
-    }, CAPTURE_DEBOUNCE_MS);
-  });
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
+  return currentStatus;
 }
 
 async function waitForRscRaw(timeoutMs = 1200): Promise<string | null> {
@@ -390,21 +138,56 @@ async function waitForRscRaw(timeoutMs = 1200): Promise<string | null> {
   });
 }
 
-function handleWikiMessage(
+function handleRuntimeMessage(
   request: RuntimeRequest,
   _sender: chrome.runtime.MessageSender,
-  sendResponse: (r: RuntimeResponse<GetWikiPageSnapshotResult>) => void,
+  sendResponse: (r: RuntimeResponse | CaptureStatus | null) => void,
 ): boolean | void {
+  if (request.command === "GET_PAGE_STATUS") {
+    sendResponse(currentStatus);
+    return;
+  }
+
+  if (request.command === "TRIGGER_RECAPTURE") {
+    const queryId = extractQueryIdFromUrl(window.location.href);
+    if (!queryId) {
+      sendResponse(null);
+      return;
+    }
+
+    void captureSession(queryId, true).then((status) => {
+      sendResponse({ ok: true, data: status } satisfies RuntimeResponse);
+    });
+    return true;
+  }
+
   if (
     request.command === "GET_WIKI_PAGE_SNAPSHOT" ||
     request.command === "SAVE_WIKI_PAGE"
   ) {
     void waitForRscRaw().then((rscRaw) => {
       const snapshot = parseWikiPage(document, location.href, rscRaw);
-      sendResponse({ ok: true, data: { snapshot } });
+      sendResponse({ ok: true, data: { snapshot } satisfies GetWikiPageSnapshotResult });
     });
     return true;
   }
+
+  if (
+    request.command === "GET_FULL_WIKI_SNAPSHOT" ||
+    request.command === "SAVE_FULL_WIKI"
+  ) {
+    void waitForRscRaw(2500).then((rscRaw) => {
+      const snapshot = parseFullWiki(document, location.href, rscRaw);
+      sendResponse({ ok: true, data: { snapshot } satisfies GetWikiPageSnapshotResult });
+    });
+    return true;
+  }
+}
+
+function ensureMessageListener(): void {
+  if (messageListenerRegistered) return;
+  chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+  messageListenerRegistered = true;
 }
 
 function reportWikiFingerprint(): void {
@@ -430,10 +213,7 @@ function initWikiPageMode(): void {
   wikiObserver = new MutationObserver(debounce(reportWikiFingerprint, 600));
   wikiObserver.observe(document.body, { childList: true, subtree: true });
 
-  if (!wikiMessageListenerRegistered) {
-    chrome.runtime.onMessage.addListener(handleWikiMessage);
-    wikiMessageListenerRegistered = true;
-  }
+  ensureMessageListener();
 }
 
 async function initSessionMode(): Promise<void> {
@@ -455,41 +235,8 @@ async function initSessionMode(): Promise<void> {
     return;
   }
 
-  setStatus({
-    supported: true,
-    active: true,
-    queryId,
-    sourceUrl: window.location.href,
-    method: undefined,
-    pending: true,
-    reason: "idle",
-    errorMessage: undefined,
-    performance: undefined,
-    existingConversationId: undefined,
-    repoNames: undefined,
-  });
-
-  const settings = await sendRuntimeMessage<Settings>("GET_SETTINGS");
-
-  if (!settings.autoCaptureEnabled) {
-    setStatus({
-      supported: true,
-      active: false,
-      queryId,
-      sourceUrl: window.location.href,
-      method: undefined,
-      pending: false,
-      reason: "auto_capture_disabled",
-      errorMessage: undefined,
-      performance: undefined,
-      existingConversationId: undefined,
-      repoNames: undefined,
-    });
-    return;
-  }
-
-  setupObserver(queryId);
-  await runCapture(queryId);
+  ensureMessageListener();
+  await captureSession(queryId);
 }
 
 function main(): void {
@@ -518,81 +265,5 @@ function main(): void {
     repoNames: undefined,
   });
 }
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || !changes[SETTINGS_KEY]) {
-    return;
-  }
-
-  const next = changes[SETTINGS_KEY].newValue as Settings | undefined;
-  const queryId = extractQueryIdFromUrl(window.location.href);
-
-  if (!queryId) {
-    return;
-  }
-
-  if (!next?.autoCaptureEnabled) {
-    stopAutoCapture();
-    setStatus({
-      supported: true,
-      active: false,
-      queryId,
-      sourceUrl: window.location.href,
-      method: undefined,
-      pending: false,
-      reason: "auto_capture_disabled",
-      errorMessage: undefined,
-      performance: undefined,
-      existingConversationId: undefined,
-      repoNames: undefined,
-    });
-    return;
-  }
-
-  setupObserver(queryId);
-  void runCapture(queryId, { force: true });
-});
-
-chrome.runtime.onMessage.addListener(
-  (request: RuntimeRequest, _sender, sendResponse) => {
-    if (request.command === "GET_PAGE_STATUS") {
-      sendResponse(currentStatus);
-      return true;
-    }
-
-    if (request.command === "TRIGGER_RECAPTURE") {
-      const queryId = extractQueryIdFromUrl(window.location.href);
-
-      if (!queryId) {
-        sendResponse({
-          ok: false,
-          error: {
-            code: "NOT_SUPPORTED",
-            message: "This page cannot be recaptured.",
-          },
-        } satisfies RuntimeResponse);
-        return true;
-      }
-
-      void runCapture(queryId, { force: true })
-        .then(() => {
-          sendResponse({ ok: true } satisfies RuntimeResponse);
-        })
-        .catch((error: unknown) => {
-          sendResponse({
-            ok: false,
-            error: {
-              code: "CAPTURE_FAILED",
-              message: ensureErrorMessage(error),
-            },
-          } satisfies RuntimeResponse);
-        });
-
-      return true;
-    }
-
-    return undefined;
-  },
-);
 
 main();
