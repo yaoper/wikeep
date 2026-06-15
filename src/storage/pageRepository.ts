@@ -3,11 +3,15 @@ import { normalizeText } from "../shared/utils";
 import { getDb } from "./db";
 
 const SCHEMA_VERSION = 1;
+const FULL_WIKI_SECTION_PATH = "__full-wiki";
 
 export function buildWikiPageId(
-  snapshot: Pick<WikiPageSnapshot, "owner" | "repo" | "sectionPath">,
+  snapshot: Pick<WikiPageSnapshot, "owner" | "repo" | "sectionPath" | "kind">,
 ): string {
   const base = `wiki:${snapshot.owner}/${snapshot.repo}`;
+  if (snapshot.kind === "full-wiki") {
+    return `${base}/${FULL_WIKI_SECTION_PATH}`;
+  }
   return snapshot.sectionPath ? `${base}/${snapshot.sectionPath}` : base;
 }
 
@@ -37,6 +41,7 @@ export async function upsertWikiPage(
   const page: WikiPage = {
     id,
     source: "deepwiki-wiki",
+    kind: snapshot.kind ?? "page",
     owner: snapshot.owner,
     repo: snapshot.repo,
     repoFullName: `${snapshot.owner}/${snapshot.repo}`,
