@@ -55,4 +55,31 @@ describe("extractWikiMarkdownFromRsc", () => {
     expect(md).not.toContain("Repository content");
     expect(md).not.toContain("Build content");
   });
+
+  it("trims repository overview pages before embedded child-page summaries", () => {
+    const overviewBody =
+      "High-level React repository overview content for the active page. ".repeat(8);
+    const raw = [
+      "# React Repository Overview",
+      overviewBody,
+      "Sources: package.json and README.md",
+      "---",
+      "## Repository Structure and Packages",
+      "This child-page summary must not be included in the unique overview export.",
+      "---",
+      "## Build System and Tooling",
+      "Another child-page summary must not be included either.",
+    ].join("\\n");
+
+    const md = extractWikiMarkdownFromRsc(raw, {
+      title: "React Repository Overview",
+      sectionPath: "1-react-repository-overview",
+    });
+
+    expect(md).toMatch(/^# React Repository Overview/m);
+    expect(md).toContain("High-level React repository overview content");
+    expect(md).toContain("Sources: package.json and README.md");
+    expect(md).not.toContain("Repository Structure and Packages");
+    expect(md).not.toContain("Build System and Tooling");
+  });
 });
