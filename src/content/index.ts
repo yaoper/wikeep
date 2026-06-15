@@ -426,7 +426,7 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResp
         ok: false,
         error: {
           code: 'NOT_DEEPWIKI_PAGE',
-          message: '当前页面不是可抓取的 DeepWiki session。'
+          message: 'This page is not a capturable DeepWiki session.'
         }
       };
       sendResponse(response);

@@ -401,7 +401,7 @@ async function exportConversationMarkdown(payload: ExportConversationMarkdownPay
   const detail = await getConversationDetail(payload.conversationId);
 
   if (!detail) {
-    throw new Error('会话记录不存在。');
+    throw new Error('Conversation record not found.');
   }
 
   const messages = await getConversationMessages(payload.conversationId);

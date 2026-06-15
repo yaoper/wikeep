@@ -1,0 +1,24 @@
+name: Nix Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  nix-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v16
+
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: Flake check
+        run: nix flake check
+
+      - name: Build + validate extension
+        run: nix develop --command wikeep-build

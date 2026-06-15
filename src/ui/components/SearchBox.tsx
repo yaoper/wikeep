@@ -5,7 +5,7 @@ interface SearchBoxProps {
 }
 
 export function SearchBox({ value, placeholder, onChange }: SearchBoxProps) {
-  const resolvedPlaceholder = placeholder ?? '支持搜索仓库名称或者对话内容';
+  const resolvedPlaceholder = placeholder ?? 'Search by repo name or conversation';
 
   return (
     <div className="search-bar">
@@ -25,7 +25,7 @@ export function SearchBox({ value, placeholder, onChange }: SearchBoxProps) {
           type="search"
         />
         {value ? (
-          <button type="button" className="search-clear" aria-label="清空搜索" onClick={() => onChange('')}>
+          <button type="button" className="search-clear" aria-label="Clear search" onClick={() => onChange('')}>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
               <path d="M2 2l6 6M8 2L2 8" />
             </svg>

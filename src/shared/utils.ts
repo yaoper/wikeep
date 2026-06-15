@@ -75,18 +75,18 @@ function sanitizeFilename(text: string): string {
 
 export function formatConversationAsMarkdown(conversation: Conversation, messages: Message[]): string {
   const lines: string[] = [];
-  const question = normalizeText(conversation.question) || '未识别问题';
+  const question = normalizeText(conversation.question) || 'Unrecognized question';
   const repoNames = conversation.metadata?.repoNames ?? [];
 
   lines.push(`# ${question}`);
   lines.push('');
 
   if (repoNames.length > 0) {
-    lines.push(`- **仓库**: ${repoNames.join(', ')}`);
+    lines.push(`- **Repository**: ${repoNames.join(', ')}`);
   }
 
-  lines.push(`- **来源**: ${conversation.sourceUrl}`);
-  lines.push(`- **保存时间**: ${new Date(conversation.updatedAt).toLocaleString('zh-CN')}`);
+  lines.push(`- **Source**: ${conversation.sourceUrl}`);
+  lines.push(`- **Saved at**: ${new Date(conversation.updatedAt).toLocaleString('en-US')}`);
   lines.push('');
   lines.push('---');
   lines.push('');

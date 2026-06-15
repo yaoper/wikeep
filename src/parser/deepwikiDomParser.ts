@@ -77,7 +77,7 @@ export function parseDeepWikiDomSnapshot(document: Document, sourceUrl: string):
   }
 
   const titleFromDocument = normalizeText(document.title.replace(/\s*\|\s*DeepWiki$/i, ''));
-  const fallbackTitle = messages.find((message) => message.role === 'user')?.content ?? '未命名会话';
+  const fallbackTitle = messages.find((message) => message.role === 'user')?.content ?? 'Untitled conversation';
 
   return {
     title: titleFromDocument && titleFromDocument !== 'Search' ? titleFromDocument : fallbackTitle,

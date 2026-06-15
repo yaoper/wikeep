@@ -1,3 +1,23 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Nix / direnv
+.direnv/
+result
+result-*
+
+# Local Chrome dev profile (wikeep-open-chrome)
+.chrome-dev-profile/
+
+# Packaged extension
+wikeep-extension.zip
+
+# Logs
+*.log
+npm-debug.log*
+
+# macOS
 .DS_Store

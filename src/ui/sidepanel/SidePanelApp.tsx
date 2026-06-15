@@ -26,13 +26,13 @@ type StatusTone = 'saved' | 'pending' | 'unknown';
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return `${hours} hr ago`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} 天前`;
-  return new Date(timestamp).toLocaleDateString('zh-CN');
+  if (days < 30) return `${days} d ago`;
+  return new Date(timestamp).toLocaleDateString('en-US');
 }
 
 function isStatusPending(context: ActiveTabContext | null): boolean {
@@ -69,28 +69,28 @@ function getStatusTone(context: ActiveTabContext | null): StatusTone {
 }
 
 function getStatusTitle(context: ActiveTabContext | null): string {
-  if (!context?.supported) return '非 DeepWiki 页面';
-  if (context.status?.reason === 'auto_capture_disabled') return '自动保存已关闭';
-  if (isStatusPending(context)) return 'Session 保存中';
+  if (!context?.supported) return 'Not a DeepWiki page';
+  if (context.status?.reason === 'auto_capture_disabled') return 'Auto-save is off';
+  if (isStatusPending(context)) return 'Saving session…';
   if (
     context.status?.method === 'api' ||
     context.status?.method === 'dom' ||
     context.status?.reason === 'already_saved'
   ) {
-    return 'Session 已保存';
+    return 'Session saved';
   }
-  if (context.status?.reason === 'storage_error') return '保存失败';
-  return '等待识别当前 Session';
+  if (context.status?.reason === 'storage_error') return 'Save failed';
+  return 'Waiting to detect current session';
 }
 
 function getStatusSubtitle(context: ActiveTabContext | null): string {
-  if (!context?.supported) return '切换到 DeepWiki 后自动识别 Session';
-  if (context.status?.reason === 'auto_capture_disabled') return '当前页可通过右侧操作手动保存';
-  if (context.status?.reason === 'storage_error') return context.status.errorMessage ?? '请稍后重试';
+  if (!context?.supported) return 'Switch to DeepWiki to auto-detect a session';
+  if (context.status?.reason === 'auto_capture_disabled') return 'Save this page manually using the action on the right';
+  if (context.status?.reason === 'storage_error') return context.status.errorMessage ?? 'Please try again later';
   if (context.status?.reason === 'api_fetch_failed' && context.status.method === 'dom') {
-    return '已通过 DOM 保存，API 同步失败';
+    return 'Saved via DOM; API sync failed';
   }
-  if (isStatusPending(context)) return '正在获取页面 Session 信息';
+  if (isStatusPending(context)) return 'Fetching session info for this page';
 
   if (
     (
@@ -102,7 +102,7 @@ function getStatusSubtitle(context: ActiveTabContext | null): string {
     return '';
   }
 
-  return '打开 DeepWiki Session 页面后自动识别';
+  return 'Open a DeepWiki session page to auto-detect';
 }
 
 function getStatusActionLabel(context: ActiveTabContext | null): string | null {
@@ -111,10 +111,10 @@ function getStatusActionLabel(context: ActiveTabContext | null): string | null {
   }
 
   if (isStatusPending(context) || context.status?.reason === 'auto_capture_disabled') {
-    return '手动保存';
+    return 'Save now';
   }
 
-  return '重新保存';
+  return 'Save again';
 }
 
 function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
@@ -321,7 +321,7 @@ export function SidePanelApp() {
   }
 
   async function handleDeleteConversation(conversationId: string) {
-    if (!window.confirm('确认删除这条记录吗？删除后无法恢复。')) {
+    if (!window.confirm('Delete this record? This cannot be undone.')) {
       return;
     }
 
@@ -331,7 +331,7 @@ export function SidePanelApp() {
   }
 
   async function handleClearAllData() {
-    if (!window.confirm('确认清空所有本地保存的数据吗？')) {
+    if (!window.confirm('Clear all locally saved data?')) {
       return;
     }
 
@@ -355,7 +355,7 @@ export function SidePanelApp() {
   async function handleCopySourceUrl(sourceUrl: string) {
     try {
       await navigator.clipboard.writeText(sourceUrl);
-      setInfoMessage('Session 地址已复制到剪贴板');
+      setInfoMessage('Session URL copied to clipboard');
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -377,9 +377,9 @@ export function SidePanelApp() {
       anchor.download = result.filename;
       anchor.click();
       URL.revokeObjectURL(url);
-      setInfoMessage('已导出 Markdown 文件');
+      setInfoMessage('Markdown file exported');
     } catch (error) {
-      setErrorMessage(`导出失败：${ensureErrorMessage(error)}`);
+      setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
     }
   }
 
@@ -398,11 +398,11 @@ export function SidePanelApp() {
         } satisfies RuntimeRequest)) as RuntimeResponse<ActiveTabContext['status']>;
 
         if (!tabResponse.ok) {
-          throw new Error(tabResponse.error?.message ?? '内容脚本重新抓取失败');
+          throw new Error(tabResponse.error?.message ?? 'Content script recapture failed');
         }
 
         setActiveContext((current) => current ? { ...current, status: tabResponse.data ?? current.status } : current);
-        setInfoMessage('当前页面 Session 已触发重新保存。');
+        setInfoMessage('Recapture triggered for the current session.');
         await refreshPanel();
         return;
       } catch {
@@ -444,10 +444,10 @@ export function SidePanelApp() {
           : current
       );
 
-      setInfoMessage('当前页面 Session 已通过后台重新保存。');
+      setInfoMessage('Current session re-saved via background.');
       await refreshPanel();
     } catch (error) {
-      setErrorMessage(`重新保存失败：${ensureErrorMessage(error)}`);
+      setErrorMessage(`Save failed: ${ensureErrorMessage(error)}`);
     }
   }
 
@@ -466,9 +466,9 @@ export function SidePanelApp() {
       anchor.download = `wikeep-backup-${date}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setInfoMessage(`已导出 ${backup.conversations.length} 条会话记录。`);
+      setInfoMessage(`Exported ${backup.conversations.length} conversations.`);
     } catch (error) {
-      setErrorMessage(`导出失败：${ensureErrorMessage(error)}`);
+      setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
     } finally {
       setExportLoading(false);
     }
@@ -494,14 +494,14 @@ export function SidePanelApp() {
         !Array.isArray(backup.conversations) ||
         !Array.isArray(backup.messages)
       ) {
-        throw new Error('备份文件格式不正确，请选择由 Wikeep 导出的 JSON 文件。');
+        throw new Error('Invalid backup file. Please choose a JSON file exported by Wikeep.');
       }
 
       const result = await sendRuntimeMessage<ImportDataResult, ImportDataPayload>('IMPORT_DATA', { backup });
-      setInfoMessage(`已成功导入 ${result.conversationCount} 条会话记录。`);
+      setInfoMessage(`Imported ${result.conversationCount} conversations.`);
       await loadConversations(debouncedKeyword);
     } catch (error) {
-      setErrorMessage(`导入失败：${ensureErrorMessage(error)}`);
+      setErrorMessage(`Import failed: ${ensureErrorMessage(error)}`);
     } finally {
       setImportLoading(false);
     }
@@ -509,10 +509,10 @@ export function SidePanelApp() {
 
   const statusTone = getStatusTone(activeContext);
   const statusActionLabel = getStatusActionLabel(activeContext);
-  const statusSubtitle = contextLoading ? '请稍候…' : getStatusSubtitle(activeContext);
+  const statusSubtitle = contextLoading ? 'Please wait…' : getStatusSubtitle(activeContext);
   const showRecentLabel = !keyword.trim() && conversations.length > 0;
   const showBack = view === 'settings' || view === 'backup';
-  const toolbarTitle = view === 'settings' ? '设置' : view === 'backup' ? '数据备份与恢复' : '';
+  const toolbarTitle = view === 'settings' ? 'Settings' : view === 'backup' ? 'Backup & Restore' : '';
 
   return (
     <div className="panel">
@@ -528,17 +528,17 @@ export function SidePanelApp() {
           <>
             <button className="back-btn" onClick={handleBack}>
               <BackIcon />
-              <span>返回</span>
+              <span>Back</span>
             </button>
             <div className="panel__toolbar-title">{toolbarTitle}</div>
           </>
         ) : (
           <>
-            <SearchBox value={keyword} onChange={setKeyword} placeholder="支持搜索仓库名称或者对话内容" />
+            <SearchBox value={keyword} onChange={setKeyword} placeholder="Search by repo name or conversation" />
             <button
               type="button"
               className="btn-icon"
-              title="刷新"
+              title="Refresh"
               onClick={() => void refreshPanel()}
             >
               <RefreshIcon />
@@ -547,7 +547,7 @@ export function SidePanelApp() {
               <button
                 type="button"
                 className="btn-icon"
-                title="更多"
+                title="More"
                 onClick={() => setMenuOpen((open) => !open)}
               >
                 <MoreIcon />
@@ -566,7 +566,7 @@ export function SidePanelApp() {
                       <circle cx="8" cy="8" r="2.5" />
                       <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" />
                     </svg>
-                    设置
+                    Settings
                   </button>
                   <button
                     type="button"
@@ -582,7 +582,7 @@ export function SidePanelApp() {
                       <path d="M2 7v3c0 1.1 2.7 2 6 2s6-.9 6-2V7" />
                       <path d="M2 10v2c0 1.1 2.7 2 6 2s6-.9 6-2v-2" />
                     </svg>
-                    数据备份与恢复
+                    Backup & Restore
                   </button>
                 </div>
               ) : null}
@@ -633,7 +633,7 @@ export function SidePanelApp() {
                 .filter(Boolean)
                 .join(' ')}
             >
-              {contextLoading ? '正在读取当前页面状态' : getStatusTitle(activeContext)}
+              {contextLoading ? 'Reading current page status' : getStatusTitle(activeContext)}
             </div>
             {statusSubtitle ? (
               <div className="status-bar__subtitle">
@@ -653,12 +653,12 @@ export function SidePanelApp() {
         {view === 'settings' ? (
           <div className="settings settings--compact">
             <div className="settings-section">
-              <div className="settings__section-title">自动保存</div>
+              <div className="settings__section-title">Auto-save</div>
               {settings ? (
                 <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
-                    <div className="settings__label">开启自动保存</div>
-                    <div className="settings__help">识别到 DeepWiki 页面后，自动将问题和仓库信息保存到本地。</div>
+                    <div className="settings__label">Enable auto-save</div>
+                    <div className="settings__help">When a DeepWiki page is detected, automatically save the question and repo info locally.</div>
                   </div>
                   <label className="toggle">
                     <input
@@ -670,20 +670,20 @@ export function SidePanelApp() {
                   </label>
                 </div>
               ) : (
-                <EmptyState title="正在加载设置" description="请稍候…" />
+                <EmptyState title="Loading settings" description="Please wait…" />
               )}
             </div>
 
             {settings ? (
               <div className="settings-section">
-                <div className="settings__section-title">数据管理</div>
+                <div className="settings__section-title">Data management</div>
                 <div className="settings__item settings__item--compact">
                   <div className="settings__item-content">
-                    <div className="settings__label">清空所有本地数据</div>
-                    <div className="settings__help">删除所有保存的历史记录，此操作不可撤销。</div>
+                    <div className="settings__label">Clear all local data</div>
+                    <div className="settings__help">Deletes all saved history. This cannot be undone.</div>
                   </div>
                   <button type="button" className="btn btn--danger settings__danger-btn" onClick={() => void handleClearAllData()}>
-                    清空
+                    Clear
                   </button>
                 </div>
               </div>
@@ -692,11 +692,11 @@ export function SidePanelApp() {
         ) : view === 'backup' ? (
           <div className="settings settings--compact">
             <div className="settings-section">
-              <div className="settings__section-title">导出数据</div>
+              <div className="settings__section-title">Export data</div>
               <div className="settings__item settings__item--compact">
                 <div className="settings__item-content">
-                  <div className="settings__label">导出为 JSON 文件</div>
-                  <div className="settings__help">将所有本地保存的会话数据导出为备份文件，可在重装插件后恢复。</div>
+                  <div className="settings__label">Export as JSON file</div>
+                  <div className="settings__help">Export all locally saved conversations as a backup file you can restore after reinstalling.</div>
                 </div>
                 <button
                   type="button"
@@ -704,17 +704,17 @@ export function SidePanelApp() {
                   onClick={() => void handleExportData()}
                   disabled={exportLoading}
                 >
-                  {exportLoading ? '导出中…' : '导出'}
+                  {exportLoading ? 'Exporting…' : 'Export'}
                 </button>
               </div>
             </div>
 
             <div className="settings-section">
-              <div className="settings__section-title">导入数据</div>
+              <div className="settings__section-title">Import data</div>
               <div className="settings__item settings__item--compact">
                 <div className="settings__item-content">
-                  <div className="settings__label">从备份文件恢复</div>
-                  <div className="settings__help">选择之前导出的 JSON 备份文件，将数据合并到当前本地记录中，不会删除已有数据。</div>
+                  <div className="settings__label">Restore from backup file</div>
+                  <div className="settings__help">Choose a previously exported JSON backup; data is merged into your local records without deleting existing data.</div>
                 </div>
                 <button
                   type="button"
@@ -722,7 +722,7 @@ export function SidePanelApp() {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={importLoading}
                 >
-                  {importLoading ? '导入中…' : '导入'}
+                  {importLoading ? 'Importing…' : 'Import'}
                 </button>
               </div>
             </div>
@@ -730,17 +730,17 @@ export function SidePanelApp() {
         ) : (
           <>
             {loading ? (
-              <EmptyState title="正在加载历史" description="Wikeep 正在读取本地会话记录。" />
+              <EmptyState title="Loading history" description="Wikeep is reading local conversation records." />
             ) : conversations.length === 0 ? (
               <EmptyState
-                title="暂无历史"
+                title="No history yet"
                 description={
-                  keyword ? '没有匹配当前关键词的会话。' : '打开 DeepWiki Session 页面后，Wikeep 会自动保存历史。'
+                  keyword ? 'No conversations match your search.' : 'Open a DeepWiki session page and Wikeep will save history automatically.'
                 }
               />
             ) : (
               <>
-                {showRecentLabel ? <div className="panel__section-label">最近</div> : null}
+                {showRecentLabel ? <div className="panel__section-label">Recent</div> : null}
                 <ConversationList
                   items={conversations}
                   onDelete={(id) => void handleDeleteConversation(id)}

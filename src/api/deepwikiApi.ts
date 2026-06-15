@@ -163,7 +163,7 @@ export function buildCapturePayloadFromDeepWikiSession(
   const repoNames = Array.from(
     new Set(session.queries.flatMap((query) => query.repo_names ?? []).filter(Boolean))
   );
-  const fallbackTitle = messages.find((message) => message.role === 'user')?.content ?? '未命名会话';
+  const fallbackTitle = messages.find((message) => message.role === 'user')?.content ?? 'Untitled conversation';
   const title = stripRelevantContext(session.title) || fallbackTitle;
 
   return {

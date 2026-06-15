@@ -55,7 +55,7 @@ function normalizeConversation(record: LegacyConversationRecord): Conversation {
   return {
     id: record.id,
     source: 'deepwiki',
-    question: question || '未识别问题',
+    question: question || 'Unrecognized question',
     sourceUrl: record.sourceUrl,
     sourceSessionId: record.sourceSessionId,
     createdAt: record.createdAt,
@@ -91,7 +91,7 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
   const conversationId =
     existingConversation?.id ??
     buildConversationId(snapshot.sourceSessionId, snapshot.sourceUrl);
-  const question = resolveConversationQuestion(snapshot) || existingConversation?.question || '未识别问题';
+  const question = resolveConversationQuestion(snapshot) || existingConversation?.question || 'Unrecognized question';
   const repoNames = dedupeStrings([
     ...(existingConversation?.metadata?.repoNames ?? []),
     ...(snapshot.metadata?.repoNames ?? [])

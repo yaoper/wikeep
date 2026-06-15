@@ -11,11 +11,11 @@ interface ConversationListProps {
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return new Date(timestamp).toLocaleDateString('zh-CN');
+  if (hours < 24) return `${hours} hr ago`;
+  return new Date(timestamp).toLocaleDateString('en-US');
 }
 
 function ExternalLinkIcon() {
@@ -87,7 +87,7 @@ export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl, onExpo
               <button
                 type="button"
                 className="card__action-btn"
-                title="在浏览器中打开"
+                title="Open in browser"
                 onClick={() => onOpenUrl(item.sourceUrl)}
               >
                 <ExternalLinkIcon />
@@ -95,7 +95,7 @@ export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl, onExpo
               <button
                 type="button"
                 className="card__action-btn"
-                title="复制来源地址"
+                title="Copy source URL"
                 onClick={() => onCopyUrl(item.sourceUrl)}
               >
                 <CopyIcon />
@@ -103,7 +103,7 @@ export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl, onExpo
               <button
                 type="button"
                 className="card__action-btn"
-                title="导出 Markdown"
+                title="Export Markdown"
                 onClick={() => onExportMarkdown(item.id)}
               >
                 <ExportIcon />
@@ -111,7 +111,7 @@ export function ConversationList({ items, onDelete, onCopyUrl, onOpenUrl, onExpo
               <button
                 type="button"
                 className="card__action-btn is-danger"
-                title="删除"
+                title="Delete"
                 onClick={() => onDelete(item.id)}
               >
                 <TrashIcon />
