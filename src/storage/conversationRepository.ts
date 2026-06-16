@@ -8,10 +8,10 @@ import type {
   ExistingCaptureLookupResult,
   Message,
 } from "../shared/types";
-import { buildConversationId, normalizeText, stableHash } from "../shared/utils";
+import { normalizeText, stableHash } from "../shared/utils";
 import {
+  buildConversationFromSnapshot,
   CONVERSATION_SCHEMA_VERSION,
-  dedupeStrings,
   normalizeConversation,
   resolveConversationQuestion,
   type LegacyConversationRecord,
@@ -60,28 +60,11 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
       : undefined;
   }
 
-  const conversationId =
-    existingConversation?.id ??
-    buildConversationId(snapshot.sourceSessionId, snapshot.sourceUrl);
-  const question =
-    resolveConversationQuestion(snapshot) ||
-    existingConversation?.question ||
-    "Unrecognized question";
-  const repoNames = dedupeStrings([
-    ...(existingConversation?.metadata?.repoNames ?? []),
-    ...(snapshot.metadata?.repoNames ?? []),
-  ]);
-  const conversation: Conversation = {
-    id: conversationId,
-    source: "deepwiki",
-    question,
-    sourceUrl: snapshot.sourceUrl,
-    sourceSessionId: snapshot.sourceSessionId,
-    createdAt: existingConversation?.createdAt ?? snapshot.capturedAt,
-    updatedAt: snapshot.capturedAt,
-    metadata: repoNames.length > 0 ? { repoNames } : undefined,
-    schemaVersion: SCHEMA_VERSION,
-  };
+  const conversation = buildConversationFromSnapshot(
+    snapshot,
+    existingConversation,
+  );
+  const conversationId = conversation.id;
 
   const existingMessageIds = await messageStore
     .index("by-conversationId")
@@ -94,7 +77,9 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
 
   for (const parsed of snapshot.messages) {
     const messageId =
-      conversationId + ":msg:" + stableHash(conversationId + ":" + parsed.order);
+      conversationId +
+      ":msg:" +
+      stableHash(conversationId + ":" + parsed.order);
     const content = normalizeText(parsed.content);
 
     if (!content) {
@@ -271,9 +256,7 @@ export async function exportAllData(): Promise<BackupData> {
   };
 }
 
-export async function importAllData(
-  backup: BackupData,
-): Promise<{
+export async function importAllData(backup: BackupData): Promise<{
   conversationCount: number;
   messageCount: number;
   pageCount: number;

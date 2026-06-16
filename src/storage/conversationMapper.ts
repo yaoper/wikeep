@@ -1,4 +1,5 @@
 import type { CapturePayload, Conversation } from "../shared/types";
+import { buildConversationId } from "../shared/utils";
 import { normalizeText } from "../shared/utils";
 
 export const CONVERSATION_SCHEMA_VERSION = 3;
@@ -44,7 +45,9 @@ export function normalizeConversation(
 ): Conversation {
   const repoNames = dedupeStrings(record.metadata?.repoNames ?? []);
   const question =
-    record.question ?? normalizeText(record.title ?? record.summary ?? "") ?? "";
+    record.question ??
+    normalizeText(record.title ?? record.summary ?? "") ??
+    "";
 
   return {
     id: record.id,
@@ -56,5 +59,34 @@ export function normalizeConversation(
     updatedAt: record.updatedAt,
     metadata: repoNames.length > 0 ? { repoNames } : undefined,
     schemaVersion: record.schemaVersion ?? CONVERSATION_SCHEMA_VERSION,
+  };
+}
+
+export function buildConversationFromSnapshot(
+  snapshot: CapturePayload,
+  existingConversation?: Conversation,
+): Conversation {
+  const conversationId =
+    existingConversation?.id ??
+    buildConversationId(snapshot.sourceSessionId, snapshot.sourceUrl);
+  const question =
+    resolveConversationQuestion(snapshot) ||
+    existingConversation?.question ||
+    "Unrecognized question";
+  const repoNames = dedupeStrings([
+    ...(existingConversation?.metadata?.repoNames ?? []),
+    ...(snapshot.metadata?.repoNames ?? []),
+  ]);
+
+  return {
+    id: conversationId,
+    source: "deepwiki",
+    question,
+    sourceUrl: snapshot.sourceUrl,
+    sourceSessionId: snapshot.sourceSessionId,
+    createdAt: existingConversation?.createdAt ?? snapshot.capturedAt,
+    updatedAt: snapshot.capturedAt,
+    metadata: repoNames.length > 0 ? { repoNames } : undefined,
+    schemaVersion: CONVERSATION_SCHEMA_VERSION,
   };
 }
