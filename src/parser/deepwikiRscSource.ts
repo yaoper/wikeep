@@ -75,6 +75,10 @@ function endIndexFromUtf8ByteLength(
   return bytes === byteLength ? index : null;
 }
 
+// extractRscTextRecords walks the RSC payload record by record.
+// Each record header is "<token>:T<hexByteLength>,1," and the body is exactly
+// <hexByteLength> UTF-8 bytes. We measure against the RAW (escaped) string so the
+// declared byte length matches the wire format, then decode each record body.
 function extractRscTextRecords(joined: string): RscTextRecord[] {
   const records: RscTextRecord[] = [];
 
@@ -134,7 +138,10 @@ function extractRscTextRecords(joined: string): RscTextRecord[] {
 
     currentPos = contentEnd;
 
-    while (currentPos < joined.length && !/[0-9a-z]/i.test(joined[currentPos])) {
+    while (
+      currentPos < joined.length &&
+      !/[0-9a-z]/i.test(joined[currentPos])
+    ) {
       currentPos++;
     }
   }
