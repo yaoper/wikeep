@@ -8,7 +8,7 @@ import type {
   ExistingCaptureLookupResult,
   Message,
 } from "../shared/types";
-import { buildConversationId, stableHash } from "../shared/utils";
+import { buildConversationId, normalizeText, stableHash } from "../shared/utils";
 import {
   CONVERSATION_SCHEMA_VERSION,
   dedupeStrings,
@@ -93,8 +93,9 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
   const now = Date.now();
 
   for (const parsed of snapshot.messages) {
-    const messageId = `${conversationId}:msg:${stableHash(`${conversationId}:${parsed.order}`)}`;
-    const content = parsed.content.trim();
+    const messageId =
+      conversationId + ":msg:" + stableHash(conversationId + ":" + parsed.order);
+    const content = normalizeText(parsed.content);
 
     if (!content) {
       continue;
