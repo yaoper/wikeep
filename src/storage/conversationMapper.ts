@@ -45,9 +45,7 @@ export function normalizeConversation(
 ): Conversation {
   const repoNames = dedupeStrings(record.metadata?.repoNames ?? []);
   const question =
-    record.question ??
-    normalizeText(record.title ?? record.summary ?? "") ??
-    "";
+    record.question ?? normalizeText(record.title ?? record.summary ?? "") ?? "";
 
   return {
     id: record.id,

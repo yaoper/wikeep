@@ -138,10 +138,7 @@ function extractRscTextRecords(joined: string): RscTextRecord[] {
 
     currentPos = contentEnd;
 
-    while (
-      currentPos < joined.length &&
-      !/[0-9a-z]/i.test(joined[currentPos])
-    ) {
+    while (currentPos < joined.length && !/[0-9a-z]/i.test(joined[currentPos])) {
       currentPos++;
     }
   }

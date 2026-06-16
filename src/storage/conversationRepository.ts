@@ -77,9 +77,7 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
 
   for (const parsed of snapshot.messages) {
     const messageId =
-      conversationId +
-      ":msg:" +
-      stableHash(conversationId + ":" + parsed.order);
+      conversationId + ":msg:" + stableHash(conversationId + ":" + parsed.order);
     const content = normalizeText(parsed.content);
 
     if (!content) {
