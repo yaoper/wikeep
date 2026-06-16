@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { JSDOM } from "jsdom";
 import {
   fingerprintWikiPage,
   parseWikiPage,
@@ -208,5 +209,30 @@ describe("parseWikiPage", () => {
     const snap = parseWikiPage(document, location.href);
     expect(fp?.contentHash).toBe(snap?.contentHash);
     expect(fp?.indexedCommit).toBe(snap?.indexedCommit);
+  });
+});
+
+const DEVIN_URL =
+  "https://app.devin.ai/org/slug/wiki/drunkod/nix-config-1#1.1";
+
+function devinDoc(): Document {
+  const dom = new JSDOM(`<!doctype html><html><head>
+    <title>Getting Started | Devin</title></head><body>
+    <main><div class="prose-main">
+      <h1>Getting Started &amp; Setup</h1>
+      <p>${"This is the body content of the section. ".repeat(20)}</p>
+      <h2>Prerequisites</h2><p>Install nix and direnv.</p>
+    </div></main></body></html>`);
+  return dom.window.document;
+}
+
+describe("parseWikiPage on Devin DOM (rscRaw = null)", () => {
+  it("produces dom markdown with the right title", () => {
+    const snap = parseWikiPage(devinDoc(), DEVIN_URL, null);
+    expect(snap).not.toBeNull();
+    expect(snap!.markdownSource).toBe("dom");
+    expect(snap!.title).toBe("Getting Started & Setup");
+    expect(snap!.owner).toBe("drunkod");
+    expect(snap!.markdown).toContain("Prerequisites");
   });
 });

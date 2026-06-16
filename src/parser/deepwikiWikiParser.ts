@@ -46,7 +46,7 @@ function scoreContentRootCandidate(
 export function findContentRoot(document: Document): HTMLElement | null {
   const pageTitle = normalizeText(
     document.querySelector("h1")?.textContent?.trim() ||
-      document.title.replace(/\s*\|\s*DeepWiki$/i, ""),
+      document.title.replace(/\s*\|\s*(DeepWiki|Devin)\s*$/i, ""),
   );
 
   const candidates = Array.from(
@@ -112,7 +112,7 @@ function extractIndexedCommit(root: HTMLElement): string | undefined {
 function extractTitle(document: Document, root: HTMLElement): string {
   const h1 = root.querySelector("h1")?.textContent?.trim();
   if (h1) return h1;
-  return normalizeText(document.title.replace(/\s*\|\s*DeepWiki$/i, ""));
+  return normalizeText(document.title.replace(/\s*\|\s*(DeepWiki|Devin)\s*$/i, ""));
 }
 
 function extractToc(document: Document, owner: string, repo: string): string[] {

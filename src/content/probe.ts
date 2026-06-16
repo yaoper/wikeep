@@ -48,7 +48,16 @@ async function waitForRscRaw(timeoutMs = 1200): Promise<string | null> {
   });
 }
 
+function isDevinPage(): boolean {
+  return location.host === "app.devin.ai";
+}
+
 export async function snapshotCurrentPage(): Promise<WikiPageSnapshot | null> {
+  // Devin has no RSC stream; parse the DOM immediately.
+  if (isDevinPage()) {
+    return parseWikiPage(document, location.href, null);
+  }
+
   const rscRaw = await waitForRscRaw(2500);
   return parseWikiPage(document, location.href, rscRaw);
 }
