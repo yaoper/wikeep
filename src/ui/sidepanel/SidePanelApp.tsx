@@ -7,26 +7,21 @@ import {
   RefreshIcon,
   ToastIcon,
 } from "../components/icons";
+import { useActiveTabContext } from "../hooks/useActiveTabContext";
 import { useBackup } from "../hooks/useBackup";
 import { useConversations } from "../hooks/useConversations";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useSettings } from "../hooks/useSettings";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
-import type { ActiveTabContext, CaptureResult } from "../../shared/types";
+import type { CaptureStatus } from "../../shared/types";
 import { ensureErrorMessage } from "../../shared/utils";
-import type {
-  ActiveTabContextChangedPayload,
-  RuntimeRequest,
-  RuntimeResponse,
-  WikiPageStateChangedPayload,
-} from "../../shared/messages";
+import type { RuntimeRequest, RuntimeResponse } from "../../shared/messages";
 import { send } from "../api/client";
 import { BackupView } from "./views/BackupView";
 import { HistoryView } from "./views/HistoryView";
 import { SettingsView } from "./views/SettingsView";
 import { getStatusViewModel } from "./statusModel";
-import { shouldAutoRefreshContext } from "./status";
 import { hasBackButton, viewTitle } from "./viewTitle";
 import type { SidePanelView } from "./viewTypes";
 
@@ -45,10 +40,17 @@ export function SidePanelApp() {
   const { wikiPages, load: loadWikiPages } = wikiPagesState;
   const settingsState = useSettings();
   const { settings, load: loadSettings } = settingsState;
-  const [contextLoading, setContextLoading] = useState(true);
-  const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(
-    null,
-  );
+  const activeTabContextState = useActiveTabContext({
+    onError: setErrorMessage,
+  });
+  const {
+    activeContext,
+    contextLoading,
+    load: loadActiveContext,
+    updateWikiState,
+    updateStatus,
+    applyCaptureResult,
+  } = activeTabContextState;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -64,19 +66,6 @@ export function SidePanelApp() {
     },
   });
 
-  async function loadActiveContext(options?: { silent?: boolean }) {
-    if (!options?.silent) setContextLoading(true);
-
-    try {
-      const nextContext = await send("GET_ACTIVE_TAB_CONTEXT");
-      setActiveContext(nextContext);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (!options?.silent) setContextLoading(false);
-    }
-  }
-
   async function refreshPanel(options?: { silent?: boolean }) {
     await Promise.all([
       loadConversations(debouncedKeyword, options),
@@ -89,10 +78,6 @@ export function SidePanelApp() {
     void loadConversations(debouncedKeyword);
     void loadWikiPages(debouncedKeyword, { silent: true });
   }, [debouncedKeyword]);
-
-  useEffect(() => {
-    void loadActiveContext();
-  }, []);
 
   useEffect(() => {
     if (view === "settings") void loadSettings();
@@ -110,16 +95,6 @@ export function SidePanelApp() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!shouldAutoRefreshContext(activeContext)) return;
-
-    const timer = window.setInterval(() => {
-      void loadActiveContext({ silent: true });
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [activeContext]);
-
-  useEffect(() => {
     const onFocus = () => {
       void refreshPanel({ silent: true });
     };
@@ -127,43 +102,6 @@ export function SidePanelApp() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [debouncedKeyword]);
-
-  useEffect(() => {
-    const onMessage = (request: RuntimeRequest) => {
-      if (request.command === "ACTIVE_TAB_CONTEXT_CHANGED") {
-        const payload = request.payload as
-          | ActiveTabContextChangedPayload
-          | undefined;
-
-        if (!payload?.context) return;
-
-        setContextLoading(false);
-        setActiveContext(payload.context);
-        return;
-      }
-
-      if (request.command === "WIKI_PAGE_STATE_CHANGED") {
-        const payload = request.payload as
-          | WikiPageStateChangedPayload
-          | undefined;
-        if (!payload) return;
-
-        setActiveContext((current) => {
-          if (
-            !current ||
-            current.routeKind !== "wiki" ||
-            current.url !== payload.url
-          ) {
-            return current;
-          }
-          return { ...current, wikiState: payload };
-        });
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(onMessage);
-    return () => chrome.runtime.onMessage.removeListener(onMessage);
-  }, []);
 
   useEffect(() => {
     if (activeContext?.status?.lastCapturedAt) {
@@ -302,19 +240,12 @@ export function SidePanelApp() {
         const result = await send("SAVE_WIKI_PAGE", {
           tabId: activeContext.tabId,
         });
-        setActiveContext((current) =>
-          current
-            ? {
-                ...current,
-                wikiState: {
-                  url: wikiUrl,
-                  pageId: result.pageId,
-                  title: result.title,
-                  state: "saved_fresh",
-                },
-              }
-            : current,
-        );
+        updateWikiState({
+          url: wikiUrl,
+          pageId: result.pageId,
+          title: result.title,
+          state: "saved_fresh",
+        });
         setInfoMessage(
           result.created
             ? "Wiki page saved."
@@ -342,7 +273,7 @@ export function SidePanelApp() {
           {
             command: "TRIGGER_RECAPTURE",
           } satisfies RuntimeRequest,
-        )) as RuntimeResponse<ActiveTabContext["status"]>;
+        )) as RuntimeResponse<CaptureStatus | undefined>;
 
         if (!tabResponse.ok) {
           throw new Error(
@@ -350,11 +281,7 @@ export function SidePanelApp() {
           );
         }
 
-        setActiveContext((current) =>
-          current
-            ? { ...current, status: tabResponse.data ?? current.status }
-            : current,
-        );
+        updateStatus(tabResponse.data ?? activeContext.status);
         setInfoMessage("Recapture triggered for the current session.");
         await refreshPanel();
         return;
@@ -370,29 +297,7 @@ export function SidePanelApp() {
         tabId: activeContext.tabId,
       });
 
-      setActiveContext((current) =>
-        current
-          ? {
-              ...current,
-              status: {
-                ...(current.status ?? {
-                  supported: true,
-                  active: true,
-                  queryId: current.queryId,
-                  sourceUrl: current.url,
-                }),
-                method: captureResult.method,
-                lastCapturedAt: captureResult.savedAt,
-                pending: captureResult.pending,
-                repoNames: captureResult.repoNames,
-                reason: undefined,
-                errorMessage: undefined,
-                performance: captureResult.performance,
-                existingConversationId: undefined,
-              },
-            }
-          : current,
-      );
+      applyCaptureResult(captureResult);
 
       setInfoMessage("Current session re-saved via background.");
       await refreshPanel();
