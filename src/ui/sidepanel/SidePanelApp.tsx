@@ -8,13 +8,13 @@ import {
   ToastIcon,
 } from "../components/icons";
 import { useBackup } from "../hooks/useBackup";
+import { useConversations } from "../hooks/useConversations";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useSettings } from "../hooks/useSettings";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
 import type {
   ActiveTabContext,
   CaptureResult,
-  ConversationListItem,
   WikiPage,
 } from "../../shared/types";
 import { ensureErrorMessage } from "../../shared/utils";
@@ -36,19 +36,21 @@ import type { SidePanelView } from "./viewTypes";
 export function SidePanelApp() {
   const [view, setView] = useState<SidePanelView>("history");
   const [keyword, setKeyword] = useState("");
-  const [conversations, setConversations] = useState<ConversationListItem[]>(
-    [],
-  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const conversationsState = useConversations({ onError: setErrorMessage });
+  const {
+    conversations,
+    loading,
+    load: loadConversations,
+  } = conversationsState;
   const [wikiPages, setWikiPages] = useState<WikiPage[]>([]);
   const settingsState = useSettings();
   const { settings, load: loadSettings } = settingsState;
-  const [loading, setLoading] = useState(true);
   const [contextLoading, setContextLoading] = useState(true);
   const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(
     null,
   );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -63,27 +65,6 @@ export function SidePanelApp() {
       await loadWikiPages(debouncedKeyword, { silent: true });
     },
   });
-
-  async function loadConversations(
-    nextKeyword?: string,
-    options?: { silent?: boolean },
-  ) {
-    if (!options?.silent) {
-      setLoading(true);
-      setErrorMessage(null);
-    }
-
-    try {
-      const items = await send("LIST_CONVERSATIONS", {
-        keyword: nextKeyword,
-      });
-      setConversations(items);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (!options?.silent) setLoading(false);
-    }
-  }
 
   async function loadWikiPages(
     nextKeyword?: string,
