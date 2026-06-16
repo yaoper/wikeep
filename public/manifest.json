@@ -6,7 +6,8 @@
   "permissions": ["storage", "sidePanel", "activeTab"],
   "host_permissions": [
     "https://deepwiki.com/*",
-    "https://api.devin.ai/ada/query/*"
+    "https://api.devin.ai/ada/query/*",
+    "https://app.devin.ai/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -20,7 +21,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://deepwiki.com/search/*", "https://deepwiki.com/*"],
+      "matches": [
+        "https://deepwiki.com/search/*",
+        "https://deepwiki.com/*",
+        "https://app.devin.ai/org/*/wiki/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_end"
     },
