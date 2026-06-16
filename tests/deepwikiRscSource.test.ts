@@ -293,4 +293,27 @@ describe("extractWikiMarkdownFromRsc", () => {
     expect(md).toContain("Navigation to Detailed Subsystems");
     expect(md).not.toContain("Next page content must not be included");
   });
+
+  it("trims trailing React Flight payload after the final RSC text record", () => {
+    const glossary = [
+      "# Glossary",
+      "Glossary content. ".repeat(20),
+      "## AI Chat Request Flow",
+      "```mermaid",
+      "sequenceDiagram",
+      "  UI->>Agent: request",
+      "```",
+      "Sources: [package.json:170-172]()",
+    ].join("\\n");
+    const tail =
+      '5:["$","$L15",null,{"repoName":"microsoft/vscode","pages":[{"page_plan":{"id":"1","title":"VS Code Architecture Overview"},"content":"$17"}]}]';
+    const raw = `1,5e:T${glossary.length.toString(16)},1,${glossary}${tail}`;
+
+    const md = extractFullWikiMarkdownFromRsc(raw);
+
+    expect(md).toContain("# Glossary");
+    expect(md).toContain("```mermaid");
+    expect(md).not.toContain("repoName");
+    expect(md).not.toContain("page_plan");
+  });
 });
