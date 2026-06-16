@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SearchBox } from "../components/SearchBox";
 
 import {
@@ -7,12 +7,12 @@ import {
   RefreshIcon,
   ToastIcon,
 } from "../components/icons";
+import { useBackup } from "../hooks/useBackup";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useSettings } from "../hooks/useSettings";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
 import type {
   ActiveTabContext,
-  BackupData,
   CaptureResult,
   ConversationListItem,
   WikiPage,
@@ -49,14 +49,20 @@ export function SidePanelApp() {
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const [exportLoading, setExportLoading] = useState(false);
-  const [importLoading, setImportLoading] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const debouncedKeyword = useDebouncedValue(keyword, SEARCH_DEBOUNCE_MS);
+  const backupState = useBackup({
+    onError: setErrorMessage,
+    onInfo: setInfoMessage,
+    onImported: async () => {
+      await loadConversations(debouncedKeyword);
+      await loadWikiPages(debouncedKeyword, { silent: true });
+    },
+  });
 
   async function loadConversations(
     nextKeyword?: string,
@@ -430,63 +436,6 @@ export function SidePanelApp() {
     }
   }
 
-  async function handleExportData() {
-    setExportLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const backup = await send("EXPORT_DATA");
-      const json = JSON.stringify(backup, null, 2);
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      const date = new Date().toISOString().slice(0, 10);
-      anchor.href = url;
-      anchor.download = `wikeep-backup-${date}.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setInfoMessage(`Exported ${backup.conversations.length} conversations.`);
-    } catch (error) {
-      setErrorMessage(`Export failed: ${ensureErrorMessage(error)}`);
-    } finally {
-      setExportLoading(false);
-    }
-  }
-
-  async function handleImportFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-
-    if (!file) return;
-
-    setImportLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const text = await file.text();
-      const backup = JSON.parse(text) as BackupData;
-
-      if (
-        typeof backup.version !== "number" ||
-        !Array.isArray(backup.conversations) ||
-        !Array.isArray(backup.messages)
-      ) {
-        throw new Error(
-          "Invalid backup file. Please choose a JSON file exported by Wikeep.",
-        );
-      }
-
-      const result = await send("IMPORT_DATA", { backup });
-      setInfoMessage(`Imported ${result.conversationCount} conversations.`);
-      await loadConversations(debouncedKeyword);
-      await loadWikiPages(debouncedKeyword, { silent: true });
-    } catch (error) {
-      setErrorMessage(`Import failed: ${ensureErrorMessage(error)}`);
-    } finally {
-      setImportLoading(false);
-    }
-  }
-
   const statusView = getStatusViewModel(activeContext, contextLoading);
   const showBack = hasBackButton(view);
   const toolbarTitle = viewTitle(view);
@@ -498,7 +447,7 @@ export function SidePanelApp() {
         type="file"
         accept=".json"
         style={{ display: "none" }}
-        onChange={(e) => void handleImportFileChange(e)}
+        onChange={(e) => void backupState.importFileChange(e)}
       />
 
       <div
@@ -624,9 +573,9 @@ export function SidePanelApp() {
           />
         ) : view === "backup" ? (
           <BackupView
-            exportLoading={exportLoading}
-            importLoading={importLoading}
-            onExportData={() => void handleExportData()}
+            exportLoading={backupState.exportLoading}
+            importLoading={backupState.importLoading}
+            onExportData={() => void backupState.exportData()}
             onImportData={() => fileInputRef.current?.click()}
           />
         ) : (
