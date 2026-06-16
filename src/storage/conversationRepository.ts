@@ -7,13 +7,15 @@ import type {
   ConversationListItem,
   ExistingCaptureLookupResult,
   Message,
-  ParsedMessage,
 } from "../shared/types";
+import { buildConversationId, stableHash } from "../shared/utils";
 import {
-  buildConversationId,
-  normalizeText,
-  stableHash,
-} from "../shared/utils";
+  CONVERSATION_SCHEMA_VERSION,
+  dedupeStrings,
+  normalizeConversation,
+  resolveConversationQuestion,
+  type LegacyConversationRecord,
+} from "./conversationMapper";
 import { getDb } from "./db";
 import {
   clearAllWikiPages,
@@ -21,63 +23,9 @@ import {
   importWikiPages,
 } from "./pageRepository";
 
-const SCHEMA_VERSION = 3;
+export { resolveConversationQuestion } from "./conversationMapper";
 
-interface LegacyConversationRecord {
-  id: string;
-  source?: "deepwiki";
-  title?: string;
-  question?: string;
-  summary?: string;
-  sourceUrl: string;
-  sourceSessionId?: string;
-  createdAt: number;
-  updatedAt: number;
-  metadata?: Conversation["metadata"];
-  schemaVersion?: number;
-}
-
-function dedupeStrings(values: string[]): string[] {
-  return Array.from(
-    new Set(values.map((value) => normalizeText(value)).filter(Boolean)),
-  );
-}
-
-export function resolveConversationQuestion(snapshot: CapturePayload): string {
-  const normalizedTitle = normalizeText(snapshot.title ?? "");
-
-  if (normalizedTitle) {
-    return normalizedTitle;
-  }
-
-  return (
-    snapshot.messages
-      .filter((message) => message.role === "user")
-      .map((message) => normalizeText(message.content))
-      .filter(Boolean)
-      .at(0) ?? ""
-  );
-}
-
-function normalizeConversation(record: LegacyConversationRecord): Conversation {
-  const repoNames = dedupeStrings(record.metadata?.repoNames ?? []);
-  const question =
-    record.question ??
-    normalizeText(record.title ?? record.summary ?? "") ??
-    "";
-
-  return {
-    id: record.id,
-    source: "deepwiki",
-    question: question || "Unrecognized question",
-    sourceUrl: record.sourceUrl,
-    sourceSessionId: record.sourceSessionId,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    metadata: repoNames.length > 0 ? { repoNames } : undefined,
-    schemaVersion: record.schemaVersion ?? SCHEMA_VERSION,
-  };
-}
+const SCHEMA_VERSION = CONVERSATION_SCHEMA_VERSION;
 
 export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
   conversationId: string;
@@ -146,7 +94,7 @@ export async function upsertCapturedSession(snapshot: CapturePayload): Promise<{
 
   for (const parsed of snapshot.messages) {
     const messageId = `${conversationId}:msg:${stableHash(`${conversationId}:${parsed.order}`)}`;
-    const content = normalizeText(parsed.content);
+    const content = parsed.content.trim();
 
     if (!content) {
       continue;
