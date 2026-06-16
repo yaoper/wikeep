@@ -46,18 +46,58 @@ function titleFromSectionPath(sectionPath?: string): string | undefined {
   return slug.replace(/-/g, " ");
 }
 
+function utf8ByteLength(codePoint: number): number {
+  if (codePoint <= 0x7f) return 1;
+  if (codePoint <= 0x7ff) return 2;
+  if (codePoint <= 0xffff) return 3;
+  return 4;
+}
+
+function endIndexFromUtf8ByteLength(
+  value: string,
+  startIndex: number,
+  byteLength: number,
+): number | null {
+  let bytes = 0;
+  let index = startIndex;
+
+  while (index < value.length && bytes < byteLength) {
+    const codePoint = value.codePointAt(index);
+    if (codePoint === undefined) return null;
+
+    bytes += utf8ByteLength(codePoint);
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+
+  return bytes === byteLength ? index : null;
+}
+
 function extractRscTextRecords(unescaped: string): RscTextRecord[] {
-  const markers: Array<{ index: number; contentStart: number; token: string }> =
-    [];
-  const re = /(?:^|\n|\d,)([0-9a-z]+):T[0-9a-f]+,1,/g;
+  const markers: Array<{
+    index: number;
+    contentStart: number;
+    contentEnd: number;
+    token: string;
+  }> = [];
+  const re = /(?:^|\n|\d,)([0-9a-z]+):T([0-9a-f]+),1,/g;
   let match: RegExpExecArray | null;
 
   while ((match = re.exec(unescaped))) {
     const token = match[1];
-    if (!token) continue;
+    const lengthHex = match[2];
+    if (!token || !lengthHex) continue;
+
+    const contentStart = match.index + match[0].length;
+    const byteLength = Number.parseInt(lengthHex, 16);
+    const contentEnd = Number.isFinite(byteLength)
+      ? (endIndexFromUtf8ByteLength(unescaped, contentStart, byteLength) ??
+        Math.min(contentStart + byteLength, unescaped.length))
+      : contentStart;
+
     markers.push({
       index: match.index,
-      contentStart: match.index + match[0].length,
+      contentStart,
+      contentEnd,
       token,
     });
   }
@@ -65,11 +105,17 @@ function extractRscTextRecords(unescaped: string): RscTextRecord[] {
   return markers
     .map((marker, index) => {
       const nextMarker = markers[index + 1];
+      const exactContent = unescaped
+        .slice(marker.contentStart, marker.contentEnd)
+        .trim();
+
       return {
         token: marker.token,
-        content: unescaped
-          .slice(marker.contentStart, nextMarker?.index ?? unescaped.length)
-          .trim(),
+        content: /#{1,6} /.test(exactContent)
+          ? exactContent
+          : unescaped
+              .slice(marker.contentStart, nextMarker?.index ?? unescaped.length)
+              .trim(),
       };
     })
     .filter((record) => /#{1,6} /.test(record.content));
