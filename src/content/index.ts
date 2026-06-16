@@ -14,7 +14,11 @@ import type {
   WikiPageDetectedPayload,
 } from "../shared/messages";
 import type { CaptureResult, CaptureStatus, Settings } from "../shared/types";
-import { debounce, ensureErrorMessage, sendRuntimeMessage } from "../shared/utils";
+import {
+  debounce,
+  ensureErrorMessage,
+  sendRuntimeMessage,
+} from "../shared/utils";
 import { isWikiPageUrl } from "../shared/wikiUrl";
 
 let currentStatus: CaptureStatus = {
@@ -53,7 +57,10 @@ async function loadSettings(): Promise<Settings> {
   }
 }
 
-async function captureSession(queryId: string, force = false): Promise<CaptureStatus> {
+async function captureSession(
+  queryId: string,
+  force = false,
+): Promise<CaptureStatus> {
   if (isCapturing) return currentStatus;
   isCapturing = true;
 
@@ -165,9 +172,12 @@ function handleRuntimeMessage(
     request.command === "GET_WIKI_PAGE_SNAPSHOT" ||
     request.command === "SAVE_WIKI_PAGE"
   ) {
-    void waitForRscRaw().then((rscRaw) => {
+    void waitForRscRaw(2500).then((rscRaw) => {
       const snapshot = parseWikiPage(document, location.href, rscRaw);
-      sendResponse({ ok: true, data: { snapshot } satisfies GetWikiPageSnapshotResult });
+      sendResponse({
+        ok: true,
+        data: { snapshot } satisfies GetWikiPageSnapshotResult,
+      });
     });
     return true;
   }
@@ -178,7 +188,10 @@ function handleRuntimeMessage(
   ) {
     void waitForRscRaw(2500).then((rscRaw) => {
       const snapshot = parseFullWiki(document, location.href, rscRaw);
-      sendResponse({ ok: true, data: { snapshot } satisfies GetWikiPageSnapshotResult });
+      sendResponse({
+        ok: true,
+        data: { snapshot } satisfies GetWikiPageSnapshotResult,
+      });
     });
     return true;
   }
