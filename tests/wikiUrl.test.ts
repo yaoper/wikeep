@@ -36,3 +36,37 @@ describe('parseWikiUrl', () => {
     });
   });
 });
+
+const ORG = "org/some-org-slug-c5c1f593e932";
+
+describe("Devin wiki URLs", () => {
+  const root = `https://app.devin.ai/${ORG}/wiki/drunkod/nix-config-1`;
+
+  it("matches a Devin repo root", () => {
+    expect(isWikiPageUrl(root)).toBe(true);
+    expect(parseWikiUrl(root)).toEqual({
+      owner: "drunkod",
+      repo: "nix-config-1",
+      sectionPath: undefined,
+    });
+  });
+
+  it("ignores ?branch= and parses hash sectionPath", () => {
+    const url = `${root}?branch=master#1.2-repository-structure`;
+    expect(isWikiPageUrl(url)).toBe(true);
+    expect(parseWikiUrl(url)?.sectionPath).toBe("1.2");
+  });
+
+  it("parses a bare numeric hash", () => {
+    expect(parseWikiUrl(`${root}#3`)?.sectionPath).toBe("3");
+  });
+
+  it("rejects non-wiki Devin paths", () => {
+    expect(isWikiPageUrl(`https://app.devin.ai/${ORG}`)).toBe(false);
+    expect(isWikiPageUrl("https://app.devin.ai/settings")).toBe(false);
+  });
+
+  it("leaves DeepWiki matching intact", () => {
+    expect(isWikiPageUrl("https://deepwiki.com/facebook/react")).toBe(true);
+  });
+});
