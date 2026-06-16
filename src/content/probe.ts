@@ -3,6 +3,7 @@ import {
   parseFullWiki,
   parseWikiPage,
 } from "../parser/deepwikiWikiParser";
+import { buildFullWikiFromDom } from "../parser/devinWikiParser";
 import type { WikiPageDetectedPayload } from "../shared/messages";
 import type { WikiPageSnapshot } from "../shared/types";
 import { sendRuntimeMessage } from "../shared/utils";
@@ -63,6 +64,11 @@ export async function snapshotCurrentPage(): Promise<WikiPageSnapshot | null> {
 }
 
 export async function snapshotFullWiki(): Promise<WikiPageSnapshot | null> {
+  // Devin has no RSC stream; traverse the sidebar DOM and compile.
+  if (isDevinPage()) {
+    return buildFullWikiFromDom(document, location.href);
+  }
+
   const rscRaw = await waitForRscRaw(2500);
   return parseFullWiki(document, location.href, rscRaw);
 }
