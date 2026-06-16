@@ -11,12 +11,9 @@ import { useBackup } from "../hooks/useBackup";
 import { useConversations } from "../hooks/useConversations";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useSettings } from "../hooks/useSettings";
+import { useWikiPages } from "../hooks/useWikiPages";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
-import type {
-  ActiveTabContext,
-  CaptureResult,
-  WikiPage,
-} from "../../shared/types";
+import type { ActiveTabContext, CaptureResult } from "../../shared/types";
 import { ensureErrorMessage } from "../../shared/utils";
 import type {
   ActiveTabContextChangedPayload,
@@ -44,7 +41,8 @@ export function SidePanelApp() {
     loading,
     load: loadConversations,
   } = conversationsState;
-  const [wikiPages, setWikiPages] = useState<WikiPage[]>([]);
+  const wikiPagesState = useWikiPages({ onError: setErrorMessage });
+  const { wikiPages, load: loadWikiPages } = wikiPagesState;
   const settingsState = useSettings();
   const { settings, load: loadSettings } = settingsState;
   const [contextLoading, setContextLoading] = useState(true);
@@ -65,20 +63,6 @@ export function SidePanelApp() {
       await loadWikiPages(debouncedKeyword, { silent: true });
     },
   });
-
-  async function loadWikiPages(
-    nextKeyword?: string,
-    options?: { silent?: boolean },
-  ) {
-    try {
-      const items = await send("LIST_WIKI_PAGES", { keyword: nextKeyword });
-      setWikiPages(items);
-    } catch (error) {
-      if (!options?.silent) {
-        setErrorMessage(error instanceof Error ? error.message : String(error));
-      }
-    }
-  }
 
   async function loadActiveContext(options?: { silent?: boolean }) {
     if (!options?.silent) setContextLoading(true);
