@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { SearchBox } from "../components/SearchBox";
-import { ConversationList } from "../components/ConversationList";
-import { EmptyState } from "../components/EmptyState";
-import { WikiPageList } from "../components/WikiPageList";
+
+import {
+  BackIcon,
+  MoreIcon,
+  RefreshIcon,
+  ToastIcon,
+} from "../components/icons";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
 import type {
@@ -12,201 +16,25 @@ import type {
   ConversationListItem,
   Settings,
   WikiPage,
-  WikiPageTabState,
 } from "../../shared/types";
-import { ensureErrorMessage, sendRuntimeMessage } from "../../shared/utils";
+import { ensureErrorMessage } from "../../shared/utils";
 import type {
   ActiveTabContextChangedPayload,
-  CaptureDeepWikiSessionPayload,
-  DeleteConversationPayload,
-  DeleteWikiPagePayload,
-  ExportConversationMarkdownResult,
-  ExportDataResult,
-  ExportWikiPageMarkdownResult,
-  ImportDataPayload,
-  ImportDataResult,
-  ListConversationsPayload,
-  ListWikiPagesPayload,
   RuntimeRequest,
   RuntimeResponse,
-  SaveFullWikiPayload,
-  SaveWikiPagePayload,
-  SaveWikiPageResult,
-  UpdateSettingsPayload,
   WikiPageStateChangedPayload,
 } from "../../shared/messages";
-
-type View = "history" | "settings" | "backup";
-type StatusTone = "saved" | "pending" | "unknown";
-
-function isStatusPending(context: ActiveTabContext | null): boolean {
-  const status = context?.status;
-  return Boolean(
-    status?.pending ||
-      (status?.active && !status?.method) ||
-      status?.reason === "dom_not_ready" ||
-      status?.reason === "idle",
-  );
-}
-
-function getWikiStatusTone(wikiState?: WikiPageTabState): StatusTone {
-  if (!wikiState) return "unknown";
-  if (wikiState.state === "saved_fresh" || wikiState.state === "updated")
-    return "saved";
-  if (wikiState.state === "saved_stale") return "pending";
-  return "unknown";
-}
-
-function getStatusTone(context: ActiveTabContext | null): StatusTone {
-  if (!context?.supported) return "unknown";
-
-  if (context.routeKind === "wiki") {
-    return getWikiStatusTone(context.wikiState);
-  }
-
-  const status = context.status;
-  if (isStatusPending(context)) return "pending";
-
-  if (
-    status?.method === "api" ||
-    status?.method === "dom" ||
-    status?.reason === "already_saved" ||
-    (status?.reason === "api_fetch_failed" && status.method === "dom")
-  ) {
-    return "saved";
-  }
-
-  return "unknown";
-}
-
-function getStatusTitle(context: ActiveTabContext | null): string {
-  if (!context?.supported) return "Not a DeepWiki page";
-
-  if (context.routeKind === "wiki") {
-    if (context.wikiState?.state === "saved_fresh") return "Wiki page saved";
-    if (context.wikiState?.state === "saved_stale") return "Wiki page changed";
-    if (context.wikiState?.state === "updated") return "Wiki page updated";
-    return "Wiki page not saved";
-  }
-
-  if (context.status?.reason === "auto_capture_disabled")
-    return "Auto-save is off";
-  if (isStatusPending(context)) return "Saving session…";
-  if (
-    context.status?.method === "api" ||
-    context.status?.method === "dom" ||
-    context.status?.reason === "already_saved"
-  ) {
-    return "Session saved";
-  }
-  if (context.status?.reason === "storage_error") return "Save failed";
-  return "Waiting to detect current session";
-}
-
-function getStatusSubtitle(context: ActiveTabContext | null): string {
-  if (!context?.supported)
-    return "Switch to DeepWiki to save a session or wiki page";
-
-  if (context.routeKind === "wiki") {
-    if (context.wikiState?.state === "saved_stale")
-      return "Saved before, but this page now has newer content.";
-    if (
-      context.wikiState?.state === "saved_fresh" ||
-      context.wikiState?.state === "updated"
-    ) {
-      return "";
-    }
-    return "Save only this page, or save the full repository wiki.";
-  }
-
-  if (context.status?.reason === "auto_capture_disabled")
-    return "Save this page manually using the action on the right";
-  if (context.status?.reason === "storage_error")
-    return context.status.errorMessage ?? "Please try again later";
-  if (
-    context.status?.reason === "api_fetch_failed" &&
-    context.status.method === "dom"
-  ) {
-    return "Saved via DOM; API sync failed";
-  }
-  if (isStatusPending(context)) return "Fetching session info for this page";
-
-  if (
-    context.status?.method === "api" ||
-    context.status?.method === "dom" ||
-    context.status?.reason === "already_saved"
-  ) {
-    return "";
-  }
-
-  return "Open a DeepWiki session page to auto-detect";
-}
-
-function getStatusActionLabel(context: ActiveTabContext | null): string | null {
-  if (!context?.supported) return null;
-
-  if (context.routeKind === "wiki") {
-    return context.wikiState?.state === "saved_stale" ? "Refresh" : "Save page";
-  }
-
-  if (
-    isStatusPending(context) ||
-    context.status?.reason === "auto_capture_disabled"
-  ) {
-    return "Save now";
-  }
-
-  return "Save again";
-}
-
-function shouldAutoRefreshContext(context: ActiveTabContext | null): boolean {
-  if (!context?.supported || context.routeKind === "wiki") return false;
-  return (
-    isStatusPending(context) ||
-    !context.status ||
-    context.status?.reason === "idle"
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
-}
-
-function MoreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="5" r="1.2" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function BackIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
-  );
-}
-
-function ToastIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
+import { send } from "../api/client";
+import { BackupView } from "./views/BackupView";
+import { HistoryView } from "./views/HistoryView";
+import { SettingsView } from "./views/SettingsView";
+import { getStatusViewModel } from "./statusModel";
+import { shouldAutoRefreshContext } from "./status";
+import { hasBackButton, viewTitle } from "./viewTitle";
+import type { SidePanelView } from "./viewTypes";
 
 export function SidePanelApp() {
-  const [view, setView] = useState<View>("history");
+  const [view, setView] = useState<SidePanelView>("history");
   const [keyword, setKeyword] = useState("");
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     [],
@@ -239,10 +67,9 @@ export function SidePanelApp() {
     }
 
     try {
-      const items = await sendRuntimeMessage<
-        ConversationListItem[],
-        ListConversationsPayload
-      >("LIST_CONVERSATIONS", { keyword: nextKeyword });
+      const items = await send("LIST_CONVERSATIONS", {
+        keyword: nextKeyword,
+      });
       setConversations(items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -256,10 +83,7 @@ export function SidePanelApp() {
     options?: { silent?: boolean },
   ) {
     try {
-      const items = await sendRuntimeMessage<WikiPage[], ListWikiPagesPayload>(
-        "LIST_WIKI_PAGES",
-        { keyword: nextKeyword },
-      );
+      const items = await send("LIST_WIKI_PAGES", { keyword: nextKeyword });
       setWikiPages(items);
     } catch (error) {
       if (!options?.silent) {
@@ -272,9 +96,7 @@ export function SidePanelApp() {
     if (!options?.silent) setContextLoading(true);
 
     try {
-      const nextContext = await sendRuntimeMessage<ActiveTabContext>(
-        "GET_ACTIVE_TAB_CONTEXT",
-      );
+      const nextContext = await send("GET_ACTIVE_TAB_CONTEXT");
       setActiveContext(nextContext);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -284,7 +106,7 @@ export function SidePanelApp() {
   }
 
   async function loadSettings() {
-    const nextSettings = await sendRuntimeMessage<Settings>("GET_SETTINGS");
+    const nextSettings = await send("GET_SETTINGS");
     setSettings(nextSettings);
   }
 
@@ -401,10 +223,7 @@ export function SidePanelApp() {
     if (!window.confirm("Delete this record? This cannot be undone.")) return;
 
     setInfoMessage(null);
-    await sendRuntimeMessage<void, DeleteConversationPayload>(
-      "DELETE_CONVERSATION",
-      { conversationId },
-    );
+    await send("DELETE_CONVERSATION", { conversationId });
     await loadConversations(debouncedKeyword);
   }
 
@@ -414,9 +233,7 @@ export function SidePanelApp() {
     }
 
     setInfoMessage(null);
-    await sendRuntimeMessage<void, DeleteWikiPagePayload>("DELETE_WIKI_PAGE", {
-      pageId,
-    });
+    await send("DELETE_WIKI_PAGE", { pageId });
     await loadWikiPages(debouncedKeyword);
   }
 
@@ -424,7 +241,7 @@ export function SidePanelApp() {
     if (!window.confirm("Clear all locally saved data?")) return;
 
     setInfoMessage(null);
-    await sendRuntimeMessage("CLEAR_ALL_DATA");
+    await send("CLEAR_ALL_DATA");
     await loadConversations(debouncedKeyword);
     await loadWikiPages(debouncedKeyword, { silent: true });
   }
@@ -432,10 +249,7 @@ export function SidePanelApp() {
   async function handleToggleAutoCapture() {
     if (!settings) return;
 
-    const nextSettings = await sendRuntimeMessage<
-      Settings,
-      UpdateSettingsPayload
-    >("UPDATE_SETTINGS", {
+    const nextSettings = await send("UPDATE_SETTINGS", {
       patch: { autoCaptureEnabled: !settings.autoCaptureEnabled },
     });
     setSettings(nextSettings);
@@ -445,10 +259,7 @@ export function SidePanelApp() {
   async function handleToggleAutoRefreshWikiPages() {
     if (!settings) return;
 
-    const nextSettings = await sendRuntimeMessage<
-      Settings,
-      UpdateSettingsPayload
-    >("UPDATE_SETTINGS", {
+    const nextSettings = await send("UPDATE_SETTINGS", {
       patch: { autoRefreshWikiPages: !settings.autoRefreshWikiPages },
     });
     setSettings(nextSettings);
@@ -478,10 +289,9 @@ export function SidePanelApp() {
     setErrorMessage(null);
 
     try {
-      const result = await sendRuntimeMessage<
-        ExportConversationMarkdownResult,
-        { conversationId: string }
-      >("EXPORT_CONVERSATION_MARKDOWN", { conversationId });
+      const result = await send("EXPORT_CONVERSATION_MARKDOWN", {
+        conversationId,
+      });
       downloadMarkdown(result.markdown, result.filename);
       setInfoMessage("Markdown file exported");
     } catch (error) {
@@ -493,10 +303,7 @@ export function SidePanelApp() {
     setErrorMessage(null);
 
     try {
-      const result = await sendRuntimeMessage<
-        ExportWikiPageMarkdownResult,
-        { pageId: string }
-      >("EXPORT_WIKI_PAGE_MARKDOWN", { pageId });
+      const result = await send("EXPORT_WIKI_PAGE_MARKDOWN", { pageId });
       downloadMarkdown(result.markdown, result.filename);
       setInfoMessage("Wiki Markdown file exported");
     } catch (error) {
@@ -510,10 +317,7 @@ export function SidePanelApp() {
     try {
       setErrorMessage(null);
       setInfoMessage(null);
-      const result = await sendRuntimeMessage<
-        SaveWikiPageResult,
-        SaveFullWikiPayload
-      >("SAVE_FULL_WIKI", {
+      const result = await send("SAVE_FULL_WIKI", {
         tabId: activeContext.tabId,
       });
       setInfoMessage(
@@ -537,10 +341,7 @@ export function SidePanelApp() {
       try {
         setErrorMessage(null);
         setInfoMessage(null);
-        const result = await sendRuntimeMessage<
-          SaveWikiPageResult,
-          SaveWikiPagePayload
-        >("SAVE_WIKI_PAGE", {
+        const result = await send("SAVE_WIKI_PAGE", {
           tabId: activeContext.tabId,
         });
         setActiveContext((current) =>
@@ -605,10 +406,7 @@ export function SidePanelApp() {
     }
 
     try {
-      const captureResult = await sendRuntimeMessage<
-        CaptureResult,
-        CaptureDeepWikiSessionPayload
-      >("CAPTURE_DEEPWIKI_SESSION", {
+      const captureResult = await send("CAPTURE_DEEPWIKI_SESSION", {
         queryId: activeContext.queryId,
         sourceUrl: activeContext.url,
         tabId: activeContext.tabId,
@@ -650,7 +448,7 @@ export function SidePanelApp() {
     setErrorMessage(null);
 
     try {
-      const backup = await sendRuntimeMessage<ExportDataResult>("EXPORT_DATA");
+      const backup = await send("EXPORT_DATA");
       const json = JSON.stringify(backup, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -691,10 +489,7 @@ export function SidePanelApp() {
         );
       }
 
-      const result = await sendRuntimeMessage<
-        ImportDataResult,
-        ImportDataPayload
-      >("IMPORT_DATA", { backup });
+      const result = await send("IMPORT_DATA", { backup });
       setInfoMessage(`Imported ${result.conversationCount} conversations.`);
       await loadConversations(debouncedKeyword);
       await loadWikiPages(debouncedKeyword, { silent: true });
@@ -705,20 +500,9 @@ export function SidePanelApp() {
     }
   }
 
-  const statusTone = getStatusTone(activeContext);
-  const statusActionLabel = getStatusActionLabel(activeContext);
-  const statusSubtitle = contextLoading
-    ? "Please wait…"
-    : getStatusSubtitle(activeContext);
-  const showRecentLabel = !keyword.trim() && conversations.length > 0;
-  const showWikiLabel = wikiPages.length > 0;
-  const showBack = view === "settings" || view === "backup";
-  const toolbarTitle =
-    view === "settings"
-      ? "Settings"
-      : view === "backup"
-        ? "Backup & Restore"
-        : "";
+  const statusView = getStatusViewModel(activeContext, contextLoading);
+  const showBack = hasBackButton(view);
+  const toolbarTitle = viewTitle(view);
 
   return (
     <div className="panel">
@@ -811,55 +595,24 @@ export function SidePanelApp() {
       ) : null}
 
       {view === "history" ? (
-        <div
-          className={[
-            "status-bar",
-            statusTone === "saved" ? "is-saved" : "",
-            statusTone === "pending" ? "is-pending" : "",
-            statusTone === "unknown" ? "is-unknown" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <span
-            className={[
-              "status-bar__dot",
-              statusTone === "saved" ? "is-saved" : "",
-              statusTone === "pending" ? "is-pending" : "",
-              statusTone === "unknown" ? "is-unknown" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          />
+        <div className={statusView.rootClassName}>
+          <span className={statusView.dotClassName} />
           <div className="status-bar__main">
-            <div
-              className={[
-                "status-bar__title",
-                statusTone === "saved" ? "is-saved" : "",
-                statusTone === "pending" ? "is-pending" : "",
-                statusTone === "unknown" ? "is-unknown" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              {contextLoading
-                ? "Reading current page status"
-                : getStatusTitle(activeContext)}
-            </div>
-            {statusSubtitle ? (
-              <div className="status-bar__subtitle">{statusSubtitle}</div>
+            <div className={statusView.titleClassName}>{statusView.title}</div>
+            {statusView.subtitle ? (
+              <div className="status-bar__subtitle">{statusView.subtitle}</div>
             ) : null}
           </div>
-          {statusActionLabel ? (
+          {statusView.actionLabel ? (
             <button
               type="button"
               className="status-bar__action"
               onClick={() => void handleManualSave()}
             >
-              {statusActionLabel}
+              {statusView.actionLabel}
             </button>
           ) : null}
-          {activeContext?.routeKind === "wiki" ? (
+          {statusView.showFullWikiAction ? (
             <button
               type="button"
               className="status-bar__action"
@@ -874,181 +627,34 @@ export function SidePanelApp() {
 
       <div className="panel__content">
         {view === "settings" ? (
-          <div className="settings settings--compact">
-            <div className="settings-section">
-              <div className="settings__section-title">Auto-save</div>
-              {settings ? (
-                <div className="settings__item settings__item--compact">
-                  <div className="settings__item-content">
-                    <div className="settings__label">Enable auto-save</div>
-                    <div className="settings__help">
-                      When a DeepWiki page is detected, automatically save the
-                      question and repo info locally.
-                    </div>
-                  </div>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={settings.autoCaptureEnabled}
-                      onChange={() => void handleToggleAutoCapture()}
-                    />
-                    <span className="toggle__track" />
-                  </label>
-                </div>
-              ) : (
-                <EmptyState
-                  title="Loading settings"
-                  description="Please wait…"
-                />
-              )}
-            </div>
-
-            {settings ? (
-              <div className="settings-section">
-                <div className="settings__section-title">Wiki pages</div>
-                <div className="settings__item settings__item--compact">
-                  <div className="settings__item-content">
-                    <div className="settings__label">
-                      Auto-refresh saved wiki pages
-                    </div>
-                    <div className="settings__help">
-                      If a saved wiki page changes, refresh it automatically
-                      when the page is open.
-                    </div>
-                  </div>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={settings.autoRefreshWikiPages}
-                      onChange={() => void handleToggleAutoRefreshWikiPages()}
-                    />
-                    <span className="toggle__track" />
-                  </label>
-                </div>
-              </div>
-            ) : null}
-
-            {settings ? (
-              <div className="settings-section">
-                <div className="settings__section-title">Data management</div>
-                <div className="settings__item settings__item--compact">
-                  <div className="settings__item-content">
-                    <div className="settings__label">Clear all local data</div>
-                    <div className="settings__help">
-                      Deletes all saved history. This cannot be undone.
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn--danger settings__danger-btn"
-                    onClick={() => void handleClearAllData()}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <SettingsView
+            settings={settings}
+            onToggleAutoCapture={() => void handleToggleAutoCapture()}
+            onToggleAutoRefreshWikiPages={() =>
+              void handleToggleAutoRefreshWikiPages()
+            }
+            onClearAllData={() => void handleClearAllData()}
+          />
         ) : view === "backup" ? (
-          <div className="settings settings--compact">
-            <div className="settings-section">
-              <div className="settings__section-title">Export data</div>
-              <div className="settings__item settings__item--compact">
-                <div className="settings__item-content">
-                  <div className="settings__label">Export as JSON file</div>
-                  <div className="settings__help">
-                    Export all locally saved conversations as a backup file you
-                    can restore after reinstalling.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn--secondary settings__danger-btn"
-                  onClick={() => void handleExportData()}
-                  disabled={exportLoading}
-                >
-                  {exportLoading ? "Exporting…" : "Export"}
-                </button>
-              </div>
-            </div>
-
-            <div className="settings-section">
-              <div className="settings__section-title">Import data</div>
-              <div className="settings__item settings__item--compact">
-                <div className="settings__item-content">
-                  <div className="settings__label">
-                    Restore from backup file
-                  </div>
-                  <div className="settings__help">
-                    Choose a previously exported JSON backup; data is merged
-                    into your local records without deleting existing data.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn--secondary settings__danger-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={importLoading}
-                >
-                  {importLoading ? "Importing…" : "Import"}
-                </button>
-              </div>
-            </div>
-          </div>
+          <BackupView
+            exportLoading={exportLoading}
+            importLoading={importLoading}
+            onExportData={() => void handleExportData()}
+            onImportData={() => fileInputRef.current?.click()}
+          />
         ) : (
-          <>
-            {loading ? (
-              <EmptyState
-                title="Loading history"
-                description="Wikeep is reading local conversation records."
-              />
-            ) : conversations.length === 0 && wikiPages.length === 0 ? (
-              <EmptyState
-                title="No history yet"
-                description={
-                  keyword
-                    ? "No saved sessions or wiki pages match your search."
-                    : "Open a DeepWiki session or wiki page and Wikeep will help you save it locally."
-                }
-              />
-            ) : (
-              <>
-                {conversations.length > 0 ? (
-                  <>
-                    {showRecentLabel ? (
-                      <div className="panel__section-label">
-                        Recent sessions
-                      </div>
-                    ) : null}
-                    <ConversationList
-                      items={conversations}
-                      onDelete={(id) => void handleDeleteConversation(id)}
-                      onCopyUrl={(url) => void handleCopySourceUrl(url)}
-                      onOpenUrl={(url) => window.open(url, "_blank")}
-                      onExportMarkdown={(id) => void handleExportMarkdown(id)}
-                    />
-                  </>
-                ) : null}
-
-                {wikiPages.length > 0 ? (
-                  <>
-                    {showWikiLabel ? (
-                      <div className="panel__section-label">Wiki pages</div>
-                    ) : null}
-                    <WikiPageList
-                      items={wikiPages}
-                      onDelete={(id) => void handleDeleteWikiPage(id)}
-                      onCopyUrl={(url) => void handleCopySourceUrl(url)}
-                      onOpenUrl={(url) => window.open(url, "_blank")}
-                      onExportMarkdown={(id) =>
-                        void handleExportWikiMarkdown(id)
-                      }
-                    />
-                  </>
-                ) : null}
-              </>
-            )}
-          </>
+          <HistoryView
+            loading={loading}
+            keyword={keyword}
+            conversations={conversations}
+            wikiPages={wikiPages}
+            onDeleteConversation={(id) => void handleDeleteConversation(id)}
+            onDeleteWikiPage={(id) => void handleDeleteWikiPage(id)}
+            onCopyUrl={(url) => void handleCopySourceUrl(url)}
+            onOpenUrl={(url) => window.open(url, "_blank")}
+            onExportConversationMarkdown={(id) => void handleExportMarkdown(id)}
+            onExportWikiMarkdown={(id) => void handleExportWikiMarkdown(id)}
+          />
         )}
       </div>
     </div>

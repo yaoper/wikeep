@@ -2,7 +2,11 @@ import type {
   ActiveTabContext,
   BackupData,
   CapturePayload,
+  CaptureResult,
   CaptureStatus,
+  ConversationDetail,
+  ConversationListItem,
+  ExistingCaptureLookupResult,
   Settings,
   WikiPage,
   WikiPageFingerprint,
@@ -10,40 +14,135 @@ import type {
   WikiPageTabState,
 } from "./types";
 
-export type RuntimeCommand =
-  | "CAPTURE_DEEPWIKI_SESSION"
-  | "CAPTURE_DOM_SNAPSHOT"
-  | "LIST_CONVERSATIONS"
-  | "GET_CONVERSATION_DETAIL"
-  | "DELETE_CONVERSATION"
-  | "CLEAR_ALL_DATA"
-  | "GET_SETTINGS"
-  | "UPDATE_SETTINGS"
-  | "GET_ACTIVE_TAB_CONTEXT"
-  | "OPEN_SIDE_PANEL"
-  | "LOOKUP_CAPTURE_BY_QUERY_ID"
-  | "REPORT_PAGE_STATUS"
-  | "ACTIVE_TAB_CONTEXT_CHANGED"
-  | "GET_PAGE_STATUS"
-  | "TRIGGER_RECAPTURE"
-  | "EXPORT_DATA"
-  | "IMPORT_DATA"
-  | "EXPORT_CONVERSATION_MARKDOWN"
-  | "WIKI_PAGE_DETECTED"
-  | "SAVE_WIKI_PAGE"
-  | "SAVE_FULL_WIKI"
-  | "GET_WIKI_PAGE_SNAPSHOT"
-  | "GET_FULL_WIKI_SNAPSHOT"
-  | "LIST_WIKI_PAGES"
-  | "GET_WIKI_PAGE"
-  | "DELETE_WIKI_PAGE"
-  | "REFRESH_WIKI_PAGE"
-  | "EXPORT_WIKI_PAGE_MARKDOWN"
-  | "WIKI_PAGE_STATE_CHANGED";
+export interface CommandMap {
+  CAPTURE_DEEPWIKI_SESSION: {
+    payload: CaptureDeepWikiSessionPayload;
+    result: CaptureResult;
+  };
+  CAPTURE_DOM_SNAPSHOT: {
+    payload: CaptureDomSnapshotPayload;
+    result: CaptureResult;
+  };
+  LIST_CONVERSATIONS: {
+    payload: ListConversationsPayload | undefined;
+    result: ConversationListItem[];
+  };
+  GET_CONVERSATION_DETAIL: {
+    payload: GetConversationDetailPayload;
+    result: ConversationDetail | null;
+  };
+  DELETE_CONVERSATION: {
+    payload: DeleteConversationPayload;
+    result: void;
+  };
+  CLEAR_ALL_DATA: {
+    payload: undefined;
+    result: void;
+  };
+  GET_SETTINGS: {
+    payload: undefined;
+    result: Settings;
+  };
+  UPDATE_SETTINGS: {
+    payload: UpdateSettingsPayload;
+    result: Settings;
+  };
+  GET_ACTIVE_TAB_CONTEXT: {
+    payload: undefined;
+    result: ActiveTabContext;
+  };
+  OPEN_SIDE_PANEL: {
+    payload: undefined;
+    result: void;
+  };
+  LOOKUP_CAPTURE_BY_QUERY_ID: {
+    payload: LookupConversationByQueryIdPayload;
+    result: ExistingCaptureLookupResult;
+  };
+  REPORT_PAGE_STATUS: {
+    payload: ReportPageStatusPayload;
+    result: void;
+  };
+  ACTIVE_TAB_CONTEXT_CHANGED: {
+    payload: ActiveTabContextChangedPayload;
+    result: null;
+  };
+  GET_PAGE_STATUS: {
+    payload: undefined;
+    result: CaptureStatus | null;
+  };
+  TRIGGER_RECAPTURE: {
+    payload: undefined;
+    result: CaptureStatus | null;
+  };
+  EXPORT_DATA: {
+    payload: undefined;
+    result: ExportDataResult;
+  };
+  IMPORT_DATA: {
+    payload: ImportDataPayload;
+    result: ImportDataResult;
+  };
+  EXPORT_CONVERSATION_MARKDOWN: {
+    payload: ExportConversationMarkdownPayload;
+    result: ExportConversationMarkdownResult;
+  };
+  WIKI_PAGE_DETECTED: {
+    payload: WikiPageDetectedPayload;
+    result: void;
+  };
+  SAVE_WIKI_PAGE: {
+    payload: SaveWikiPagePayload;
+    result: SaveWikiPageResult;
+  };
+  SAVE_FULL_WIKI: {
+    payload: SaveFullWikiPayload;
+    result: SaveWikiPageResult;
+  };
+  GET_WIKI_PAGE_SNAPSHOT: {
+    payload: undefined;
+    result: GetWikiPageSnapshotResult;
+  };
+  GET_FULL_WIKI_SNAPSHOT: {
+    payload: undefined;
+    result: GetWikiPageSnapshotResult;
+  };
+  LIST_WIKI_PAGES: {
+    payload: ListWikiPagesPayload | undefined;
+    result: WikiPage[];
+  };
+  GET_WIKI_PAGE: {
+    payload: GetWikiPagePayload;
+    result: GetWikiPageResult;
+  };
+  DELETE_WIKI_PAGE: {
+    payload: DeleteWikiPagePayload;
+    result: void;
+  };
+  REFRESH_WIKI_PAGE: {
+    payload: RefreshWikiPagePayload;
+    result: SaveWikiPageResult;
+  };
+  EXPORT_WIKI_PAGE_MARKDOWN: {
+    payload: ExportWikiPageMarkdownPayload;
+    result: ExportWikiPageMarkdownResult;
+  };
+  WIKI_PAGE_STATE_CHANGED: {
+    payload: WikiPageStateChangedPayload;
+    result: null;
+  };
+}
 
-export interface RuntimeRequest<TPayload = unknown> {
-  command: RuntimeCommand;
-  payload?: TPayload;
+export type RuntimeCommand = keyof CommandMap;
+export type PayloadOf<C extends RuntimeCommand> = CommandMap[C]["payload"];
+export type ResultOf<C extends RuntimeCommand> = CommandMap[C]["result"];
+
+type RuntimeRequestCommand<T> = T extends RuntimeCommand ? T : RuntimeCommand;
+type RuntimeRequestPayload<T> = T extends RuntimeCommand ? PayloadOf<T> : T;
+
+export interface RuntimeRequest<TCommandOrPayload = RuntimeCommand> {
+  command: RuntimeRequestCommand<TCommandOrPayload>;
+  payload?: RuntimeRequestPayload<TCommandOrPayload>;
 }
 
 export interface RuntimeErrorPayload {
@@ -104,6 +203,7 @@ export interface ImportDataPayload {
 export interface ImportDataResult {
   conversationCount: number;
   messageCount: number;
+  pageCount?: number;
 }
 
 export interface ExportConversationMarkdownPayload {

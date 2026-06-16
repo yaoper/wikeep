@@ -14,6 +14,9 @@ interface RscTextRecord {
   content: string;
 }
 
+// Max plausible RSC row header: "<token>:T<hex>,1," — comfortably under this.
+const MAX_RSC_HEADER_LEN = 100;
+
 function decodeRscText(joined: string): string {
   return joined
     .split("\\n")
@@ -74,7 +77,7 @@ function endIndexFromUtf8ByteLength(
 
 function extractRscTextRecords(joined: string): RscTextRecord[] {
   const records: RscTextRecord[] = [];
-  
+
   const firstT = joined.indexOf(":T");
   if (firstT === -1) return [];
 
@@ -82,57 +85,60 @@ function extractRscTextRecords(joined: string): RscTextRecord[] {
   while (startIdx > 0 && /[0-9a-z]/i.test(joined[startIdx - 1])) {
     startIdx--;
   }
-  
+
   let currentPos = startIdx;
-  
+
   while (currentPos < joined.length) {
     const re = /^([0-9a-z]+):T([0-9a-f]+),(?:1,)?/i;
-    const slice = joined.slice(currentPos, currentPos + 100);
+    const slice = joined.slice(currentPos, currentPos + MAX_RSC_HEADER_LEN);
     const match = re.exec(slice);
     if (!match) {
       const nextT = joined.indexOf(":T", currentPos);
       if (nextT === -1) break;
-      
+
       let nextStartIdx = nextT;
-      while (nextStartIdx > currentPos && /[0-9a-z]/i.test(joined[nextStartIdx - 1])) {
+      while (
+        nextStartIdx > currentPos &&
+        /[0-9a-z]/i.test(joined[nextStartIdx - 1])
+      ) {
         nextStartIdx--;
       }
       currentPos = nextStartIdx;
       continue;
     }
-    
+
     const token = match[1];
     const lengthHex = match[2];
     const headerLength = match[0].length;
-    
+
     if (!token || !lengthHex) {
       currentPos += headerLength;
       continue;
     }
-    
+
     const contentStart = currentPos + headerLength;
     const byteLength = Number.parseInt(lengthHex, 16);
-    
+
     const contentEnd = Number.isFinite(byteLength)
       ? (endIndexFromUtf8ByteLength(joined, contentStart, byteLength) ??
         Math.min(contentStart + byteLength, joined.length))
       : contentStart;
-                       
+
     const escapedContent = joined.slice(contentStart, contentEnd);
     const content = decodeRscText(escapedContent).trim();
-    
+
     records.push({
       token,
       content,
     });
-    
+
     currentPos = contentEnd;
-    
+
     while (currentPos < joined.length && !/[0-9a-z]/i.test(joined[currentPos])) {
       currentPos++;
     }
   }
-  
+
   return records.filter((r) => /#{1,6} /.test(r.content));
 }
 
