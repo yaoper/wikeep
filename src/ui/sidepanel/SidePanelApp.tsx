@@ -8,13 +8,13 @@ import {
   ToastIcon,
 } from "../components/icons";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useSettings } from "../hooks/useSettings";
 import { SEARCH_DEBOUNCE_MS } from "../../shared/constants";
 import type {
   ActiveTabContext,
   BackupData,
   CaptureResult,
   ConversationListItem,
-  Settings,
   WikiPage,
 } from "../../shared/types";
 import { ensureErrorMessage } from "../../shared/utils";
@@ -40,7 +40,8 @@ export function SidePanelApp() {
     [],
   );
   const [wikiPages, setWikiPages] = useState<WikiPage[]>([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const settingsState = useSettings();
+  const { settings, load: loadSettings } = settingsState;
   const [loading, setLoading] = useState(true);
   const [contextLoading, setContextLoading] = useState(true);
   const [activeContext, setActiveContext] = useState<ActiveTabContext | null>(
@@ -103,11 +104,6 @@ export function SidePanelApp() {
     } finally {
       if (!options?.silent) setContextLoading(false);
     }
-  }
-
-  async function loadSettings() {
-    const nextSettings = await send("GET_SETTINGS");
-    setSettings(nextSettings);
   }
 
   async function refreshPanel(options?: { silent?: boolean }) {
@@ -247,22 +243,13 @@ export function SidePanelApp() {
   }
 
   async function handleToggleAutoCapture() {
-    if (!settings) return;
-
-    const nextSettings = await send("UPDATE_SETTINGS", {
-      patch: { autoCaptureEnabled: !settings.autoCaptureEnabled },
-    });
-    setSettings(nextSettings);
+    const nextSettings = await settingsState.toggleAutoCapture();
+    if (!nextSettings) return;
     await loadActiveContext();
   }
 
   async function handleToggleAutoRefreshWikiPages() {
-    if (!settings) return;
-
-    const nextSettings = await send("UPDATE_SETTINGS", {
-      patch: { autoRefreshWikiPages: !settings.autoRefreshWikiPages },
-    });
-    setSettings(nextSettings);
+    await settingsState.toggleAutoRefreshWikiPages();
   }
 
   async function handleCopySourceUrl(sourceUrl: string) {
