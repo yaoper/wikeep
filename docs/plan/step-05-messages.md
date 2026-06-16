@@ -52,7 +52,7 @@ import type {
   WikiPage,
   WikiPageFingerprint,
   WikiPageSnapshot,
-  WikiPageState
+  WikiPageTabState
 } from './types';
 
 // content → BG, on every wiki page load
@@ -105,13 +105,9 @@ export interface ExportWikiPageMarkdownResult {
   filename: string;
 }
 
-// BG → panel (near-real-time status for the active tab)
-export interface WikiPageStateChangedPayload {
-  url: string;
-  state: WikiPageState;
-  pageId?: string;
-  title?: string;
-}
+// BG → panel (near-real-time status for the active tab).
+// Shape lives in types.ts (WikiPageTabState) so types.ts stays message-free.
+export interface WikiPageStateChangedPayload extends WikiPageTabState {}
 
 export type ListWikiPagesResult = WikiPage[];
 export type GetWikiPageResult = WikiPage | null;

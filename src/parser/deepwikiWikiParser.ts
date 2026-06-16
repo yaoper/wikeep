@@ -8,6 +8,8 @@ import {
 import { elementToMarkdown } from "./htmlToMarkdown";
 
 const FULL_WIKI_SECTION_PATH = "__full-wiki";
+const DEBUG_WIKI_SAVE = false;
+
 
 function getElementText(element: HTMLElement): string {
   return element.innerText || element.textContent || "";
@@ -152,6 +154,20 @@ export function parseWikiPage(
     rscMarkdown ?? elementToMarkdown(sanitized, { sourceUrl: url });
   const markdownSource = rscMarkdown ? "rsc" : "dom";
   const cleanedText = normalizeText(getElementText(sanitized));
+
+  if (DEBUG_WIKI_SAVE) {
+    console.debug("[wikeep] wiki snapshot", {
+      title,
+      sectionPath: parts.sectionPath,
+      hasRscRaw: !!rscRaw,
+      rscRawLength: rscRaw?.length ?? 0,
+      rscMarkdownLength: rscMarkdown?.length ?? 0,
+      markdownSource,
+      hasMermaid: markdown.includes("```mermaid"),
+      hasLiveDiagramSvg: collectDiagramIndexes(root).size > 0,
+    });
+  }
+
 
   return {
     url,

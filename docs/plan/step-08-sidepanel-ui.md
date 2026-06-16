@@ -17,7 +17,7 @@ type View = 'history' | 'settings' | 'backup' | 'wiki'; // + 'wiki'
 
 // inside the component:
 const [wikiPages, setWikiPages] = useState<WikiPage[]>([]);
-const [wikiState, setWikiState] = useState<WikiPageStateChangedPayload | null>(null);
+const [wikiState, setWikiState] = useState<WikiPageTabState | null>(null);
 ```
 
 Load the list when the wiki view opens and react to background state pushes:
@@ -35,15 +35,25 @@ useEffect(() => {
   if (view === 'wiki') void loadWikiPages(debouncedKeyword);
 }, [view, debouncedKeyword]);
 
+// Only accept state pushes for the tab the panel is currently showing —
+// otherwise a second DeepWiki tab could flip the Save/Refresh state.
 useEffect(() => {
   const onMessage = (request: RuntimeRequest) => {
-    if (request.command === 'WIKI_PAGE_STATE_CHANGED') {
-      setWikiState(request.payload as WikiPageStateChangedPayload);
+    if (request.command !== 'WIKI_PAGE_STATE_CHANGED') return;
+    const payload = request.payload as WikiPageStateChangedPayload;
+    if (activeContext?.url === payload.url) {
+      setWikiState(payload);
     }
   };
   chrome.runtime.onMessage.addListener(onMessage);
   return () => chrome.runtime.onMessage.removeListener(onMessage);
-}, []);
+}, [activeContext?.url]);
+
+// When the active tab changes, adopt the wiki state the background already
+// cached for it (carried on ActiveTabContext.wikiState), or clear it.
+useEffect(() => {
+  setWikiState(activeContext?.wikiState ?? null);
+}, [activeContext?.url, activeContext?.wikiState]);
 ```
 
 ---

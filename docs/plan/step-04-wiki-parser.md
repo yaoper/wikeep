@@ -26,6 +26,7 @@ import type { WikiPageSnapshot } from '../shared/types';
 import { normalizeText, stableHash } from '../shared/utils';
 import { parseWikiUrl } from '../shared/wikiUrl';
 import { elementToMarkdown } from './htmlToMarkdown';
+import { extractWikiMarkdownFromRsc } from './deepwikiRscSource'; // Step 12
 
 /** Pick the visible article container: the largest prose block. */
 export function findContentRoot(document: Document): HTMLElement | null {
@@ -108,8 +109,16 @@ function extractToc(document: Document, owner: string, repo: string): string[] {
   return Array.from(new Set(hrefs));
 }
 
-/** Main entry: Document → snapshot (or null if not a parseable wiki page). */
-export function parseWikiPage(document: Document, url: string): WikiPageSnapshot | null {
+/**
+ * Main entry: Document → snapshot (or null if not a parseable wiki page).
+ * `rscRaw` is the raw RSC string from the MAIN-world probe (Step 12); when
+ * present and parseable it is the preferred, diagram-complete Markdown source.
+ */
+export function parseWikiPage(
+  document: Document,
+  url: string,
+  rscRaw?: string | null
+): WikiPageSnapshot | null {
   const parts = parseWikiUrl(url);
   if (!parts) return null;
 
@@ -119,7 +128,8 @@ export function parseWikiPage(document: Document, url: string): WikiPageSnapshot
   }
 
   const sanitized = sanitizeForMarkdown(root); // measures diagrams on live root
-  const markdown = elementToMarkdown(sanitized, { sourceUrl: url });
+  const rscMarkdown = rscRaw ? extractWikiMarkdownFromRsc(rscRaw) : null;
+  const markdown = rscMarkdown ?? elementToMarkdown(sanitized, { sourceUrl: url });
   const cleanedText = normalizeText(sanitized.innerText);
 
   return {

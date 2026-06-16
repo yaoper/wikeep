@@ -23,11 +23,6 @@ export async function upsertWikiPage(
   const now = Date.now();
   const existing = (await db.get("pages", id)) as WikiPage | undefined;
 
-  const changed =
-    !!existing &&
-    (existing.contentHash !== snapshot.contentHash ||
-      existing.indexedCommit !== snapshot.indexedCommit);
-
   const sameContent =
     !!existing &&
     existing.contentHash === snapshot.contentHash &&
@@ -38,6 +33,22 @@ export async function upsertWikiPage(
     existing.markdownSource === "rsc" &&
     snapshot.markdownSource !== "rsc";
 
+  const wouldDowngradeDiagrams =
+    !!existing &&
+    existing.markdownSource === "rsc" &&
+    existing.hasDiagrams &&
+    snapshot.markdownSource !== "rsc";
+
+  const shouldPreserveExisting = wouldDowngrade || wouldDowngradeDiagrams;
+
+  const changed =
+    !!existing &&
+    !shouldPreserveExisting &&
+    (existing.contentHash !== snapshot.contentHash ||
+      existing.indexedCommit !== snapshot.indexedCommit ||
+      existing.markdown !== snapshot.markdown ||
+      existing.markdownSource !== snapshot.markdownSource);
+
   const page: WikiPage = {
     id,
     source: "deepwiki-wiki",
@@ -46,20 +57,28 @@ export async function upsertWikiPage(
     repo: snapshot.repo,
     repoFullName: `${snapshot.owner}/${snapshot.repo}`,
     sectionPath: snapshot.sectionPath,
-    hasDiagrams: wouldDowngrade ? existing.hasDiagrams : snapshot.hasDiagrams,
+    hasDiagrams: shouldPreserveExisting
+      ? existing.hasDiagrams
+      : snapshot.hasDiagrams,
     title:
       normalizeText(snapshot.title) || `${snapshot.owner}/${snapshot.repo}`,
     url: snapshot.url,
-    markdown: wouldDowngrade ? existing.markdown : snapshot.markdown,
-    markdownSource: wouldDowngrade
+    markdown: shouldPreserveExisting ? existing.markdown : snapshot.markdown,
+    markdownSource: shouldPreserveExisting
       ? existing.markdownSource
       : snapshot.markdownSource,
-    contentHash: snapshot.contentHash,
-    indexedCommit: snapshot.indexedCommit,
-    relatedSections: snapshot.relatedSections,
-    wordCount: wouldDowngrade ? existing.wordCount : snapshot.wordCount,
+    contentHash: shouldPreserveExisting
+      ? existing.contentHash
+      : snapshot.contentHash,
+    indexedCommit: shouldPreserveExisting
+      ? existing.indexedCommit
+      : snapshot.indexedCommit,
+    relatedSections: shouldPreserveExisting
+      ? existing.relatedSections
+      : snapshot.relatedSections,
+    wordCount: shouldPreserveExisting ? existing.wordCount : snapshot.wordCount,
     createdAt: existing?.createdAt ?? snapshot.capturedAt ?? now,
-    updatedAt: now,
+    updatedAt: shouldPreserveExisting ? existing.updatedAt : now,
     lastCheckedAt: now,
     isStale: false,
     schemaVersion: SCHEMA_VERSION,

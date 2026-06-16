@@ -253,4 +253,44 @@ describe("extractWikiMarkdownFromRsc", () => {
 
     expect(md).toBeNull();
   });
+
+  it("preserves Mermaid diagrams from an RSC text record when page map is absent", () => {
+    const core = [
+      "# Core Reconciler Architecture",
+      "Core intro. ".repeat(20),
+      "## Fiber Tree Structure",
+      "```mermaid",
+      "graph TD",
+      "  FiberRoot --> HostRoot",
+      "```",
+      "# Summary Diagram: Core Reconciler Architecture and Key Code Entities",
+      "```mermaid",
+      "graph TD",
+      "  RenderPhase --> CommitPhase",
+      "```",
+      "# Navigation to Detailed Subsystems",
+      "Still visible on this page.",
+    ].join("\\n");
+
+    const next = [
+      "# Fiber Work Loop and Scheduling",
+      "Next page content must not be included. ".repeat(20),
+    ].join("\\n");
+
+    const raw = [
+      `1,1a:T${core.length.toString(16)},1,${core}`,
+      `1,1b:T${next.length.toString(16)},1,${next}`,
+    ].join("\\n");
+
+    const md = extractWikiMarkdownFromRsc(raw, {
+      title: "Core Reconciler Architecture",
+      sectionPath: "2-core-reconciler-architecture",
+    });
+
+    expect(md).toContain("```mermaid");
+    expect(md).toContain("FiberRoot --> HostRoot");
+    expect(md).toContain("RenderPhase --> CommitPhase");
+    expect(md).toContain("Navigation to Detailed Subsystems");
+    expect(md).not.toContain("Next page content must not be included");
+  });
 });

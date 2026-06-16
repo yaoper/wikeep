@@ -133,7 +133,7 @@ async function handleWikiPageDetected(
 }
 
 async function handleSaveWikiPage(
-  payload: SaveWikiPagePayload & RefreshWikiPagePayload,
+  payload: SaveWikiPagePayload,
   sender: chrome.runtime.MessageSender
 ): Promise<SaveWikiPageResult> {
   const tabId = payload.tabId ?? sender.tab?.id ?? (await getActiveTabId());
@@ -141,6 +141,47 @@ async function handleSaveWikiPage(
 
   if (!snapshot) {
     throw new Error('Could not read the wiki page. Make sure it is fully loaded.');
+  }
+
+  const { pageId, changed, created } = await upsertWikiPage(snapshot);
+  setWikiState(tabId, { url: snapshot.url, state: 'saved_fresh', pageId, title: snapshot.title });
+  return { pageId, changed, created, title: snapshot.title };
+}
+
+/**
+ * Refresh can be triggered from the Wiki Pages list with only a `pageId` (no
+ * active tab). Resolve which tab to read the live snapshot from.
+ */
+async function resolveWikiRefreshTab(
+  payload: RefreshWikiPagePayload,
+  sender: chrome.runtime.MessageSender
+): Promise<number | undefined> {
+  if (payload.tabId) return payload.tabId;
+  if (sender.tab?.id) return sender.tab.id;
+
+  if (payload.pageId) {
+    const page = await getWikiPage(payload.pageId);
+    if (!page) throw new Error('Wiki page not found.');
+
+    const tabs = await chrome.tabs.query({ url: page.url });
+    const tabId = tabs.find((tab) => typeof tab.id === 'number')?.id;
+    if (!tabId) {
+      throw new Error('Open this saved DeepWiki page in a tab before refreshing it.');
+    }
+    return tabId;
+  }
+
+  return getActiveTabId();
+}
+
+async function handleRefreshWikiPage(
+  payload: RefreshWikiPagePayload,
+  sender: chrome.runtime.MessageSender
+): Promise<SaveWikiPageResult> {
+  const tabId = await resolveWikiRefreshTab(payload, sender);
+  const snapshot = tabId ? await requestSnapshotFromTab(tabId) : null;
+  if (!snapshot) {
+    throw new Error('Could not read the wiki page. Make sure it is open and fully loaded.');
   }
 
   const { pageId, changed, created } = await upsertWikiPage(snapshot);
@@ -164,8 +205,9 @@ Then add cases to the existing `switch` in `handleRuntimeCommand` — each just
 case 'WIKI_PAGE_DETECTED':
   return handleWikiPageDetected(payload as WikiPageDetectedPayload, sender);
 case 'SAVE_WIKI_PAGE':
+  return handleSaveWikiPage(payload as SaveWikiPagePayload, sender);
 case 'REFRESH_WIKI_PAGE':
-  return handleSaveWikiPage(payload as SaveWikiPagePayload & RefreshWikiPagePayload, sender);
+  return handleRefreshWikiPage(payload as RefreshWikiPagePayload, sender);
 case 'LIST_WIKI_PAGES':
   return listWikiPages((payload as ListWikiPagesPayload | undefined)?.keyword);
 case 'GET_WIKI_PAGE':

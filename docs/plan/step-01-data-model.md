@@ -92,6 +92,17 @@ the active tab is a session, a wiki page, or neither (the current code only sets
 ```ts
 export type DeepWikiRouteKind = 'session' | 'wiki' | 'other';
 
+/**
+ * Active-tab wiki state. Defined here (not in messages.ts) so types.ts has no
+ * dependency on the message layer. messages.ts re-exports it as the payload.
+ */
+export interface WikiPageTabState {
+  url: string;
+  state: WikiPageState;
+  pageId?: string;
+  title?: string;
+}
+
 export interface ActiveTabContext {
   tabId?: number;
   title?: string;
@@ -100,7 +111,7 @@ export interface ActiveTabContext {
   routeKind?: DeepWikiRouteKind;   // ← add
   queryId?: string;
   status?: CaptureStatus;
-  wikiState?: WikiPageStateChangedPayload; // ← add (active-tab wiki state)
+  wikiState?: WikiPageTabState;    // ← add (active-tab wiki state)
 }
 ```
 

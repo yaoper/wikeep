@@ -2,9 +2,11 @@
 
 **File:** `src/content/index.ts`
 
-The content script is a single IIFE bundle. We branch by route at startup: keep
-the existing `/search/*` flow, and add a wiki mode for wiki pages. No new bundle
-or build change — Step 9 only widens the manifest match list.
+The isolated content script remains a single IIFE bundle. We branch by route at
+startup: keep the existing `/search/*` flow, and add a wiki mode for wiki pages.
+Step 9 adds a **separate MAIN‑world probe bundle** (`pageWorldProbe.js`, third
+Vite pass) for RSC recovery — that is the only build change; the isolated
+content script itself is unchanged structurally.
 
 ---
 

@@ -65,6 +65,44 @@ describe("pageRepository", () => {
     expect(saved?.markdown.length).toBeGreaterThan(1000);
   });
 
+  it("does not overwrite existing RSC diagrams save with a DOM fallback", async () => {
+    const customBase = {
+      ...base,
+      sectionPath: "1.1-diagrams",
+      url: "https://deepwiki.com/facebook/react/1.1-diagrams",
+    };
+
+    const existingRsc = {
+      ...customBase,
+      markdown: "# X\n\n```mermaid\ngraph TD\n  A --> B\n```\n",
+      markdownSource: "rsc" as const,
+      hasDiagrams: true,
+      contentHash: "hash123",
+      indexedCommit: "commit123",
+    };
+
+    const first = await upsertWikiPage(existingRsc);
+    expect(first.created).toBe(true);
+
+    const incomingDom = {
+      ...customBase,
+      markdown: "# X\n\n> 📊 Diagram omitted — view it on the source page\n",
+      markdownSource: "dom" as const,
+      hasDiagrams: false,
+      contentHash: "hash456",
+      indexedCommit: "commit456",
+    };
+
+    const result = await upsertWikiPage(incomingDom);
+
+    const saved = await getWikiPage("wiki:facebook/react/1.1-diagrams");
+    expect(saved?.markdownSource).toBe("rsc");
+    expect(saved?.hasDiagrams).toBe(true);
+    expect(saved?.markdown).toContain("```mermaid");
+    expect(saved?.markdown).not.toContain("Diagram omitted");
+    expect(result.changed).toBe(false);
+  });
+
   it("deletes", async () => {
     const { pageId } = await upsertWikiPage(base);
     await deleteWikiPage(pageId);

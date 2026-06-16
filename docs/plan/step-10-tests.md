@@ -119,7 +119,7 @@ describe('parseWikiPage', () => {
     expect(snap.repo).toBe('react');
     expect(snap.sectionPath).toBe('1.1-repository-structure-and-packages');
     expect(snap.title).toBe('Repository Structure and Packages');
-    expect(snap.markdown).toContain('## ');         // headings preserved (h1 may stay h1)
+    expect(snap.markdown).toMatch(/^# Repository Structure and Packages/m); // ATX h1 from <h1>
     expect(snap.markdown).toContain('```json');     // code-lang preserved
     expect(snap.indexedCommit).toBe('bf76955e');
     expect(snap.markdown).toContain('Diagram omitted'); // svg → placeholder
