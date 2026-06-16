@@ -1,5 +1,5 @@
 let wikiObserver: MutationObserver | null = null;
-let timer: ReturnType<typeof window.setTimeout> | undefined;
+let timer: number | undefined;
 
 export function observeWikiPage(callback: () => void): void {
   wikiObserver?.disconnect();

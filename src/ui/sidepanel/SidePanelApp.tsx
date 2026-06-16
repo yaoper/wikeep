@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { SearchBox } from "../components/SearchBox";
-
-import {
-  BackIcon,
-  MoreIcon,
-  RefreshIcon,
-  ToastIcon,
-} from "../components/icons";
+import { PanelToolbar } from "../components/PanelToolbar";
+import { Toast } from "../components/Toast";
 import { useActiveTabContext } from "../hooks/useActiveTabContext";
 import { useBackup } from "../hooks/useBackup";
 import { useConversations } from "../hooks/useConversations";
@@ -320,85 +314,27 @@ export function SidePanelApp() {
         onChange={(e) => void backupState.importFileChange(e)}
       />
 
-      <div
-        className={
-          showBack
-            ? "panel__toolbar panel__toolbar--settings"
-            : "panel__toolbar"
-        }
-      >
-        {showBack ? (
-          <>
-            <button className="back-btn" onClick={handleBack}>
-              <BackIcon />
-              <span>Back</span>
-            </button>
-            <div className="panel__toolbar-title">{toolbarTitle}</div>
-          </>
-        ) : (
-          <>
-            <SearchBox
-              value={keyword}
-              onChange={setKeyword}
-              placeholder="Search by repo name or conversation"
-            />
-            <button
-              type="button"
-              className="btn-icon"
-              title="Refresh"
-              onClick={() => void refreshPanel()}
-            >
-              <RefreshIcon />
-            </button>
-            <div className="dropdown" ref={menuRef}>
-              <button
-                type="button"
-                className="btn-icon"
-                title="More"
-                onClick={() => setMenuOpen((open) => !open)}
-              >
-                <MoreIcon />
-              </button>
-              {menuOpen ? (
-                <div className="dropdown__menu">
-                  <button
-                    type="button"
-                    className="dropdown__item"
-                    onClick={() => {
-                      setView("settings");
-                      setMenuOpen(false);
-                    }}
-                  >
-                    Settings
-                  </button>
-                  <button
-                    type="button"
-                    className="dropdown__item"
-                    onClick={() => {
-                      setView("backup");
-                      setMenuOpen(false);
-                    }}
-                  >
-                    Backup & Restore
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </>
-        )}
-      </div>
+      <PanelToolbar
+        view={view}
+        showBack={showBack}
+        toolbarTitle={toolbarTitle}
+        keyword={keyword}
+        menuOpen={menuOpen}
+        menuRef={menuRef}
+        onKeywordChange={setKeyword}
+        onBack={handleBack}
+        onRefresh={() => void refreshPanel()}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onSelectView={(nextView) => {
+          setView(nextView);
+          setMenuOpen(false);
+        }}
+      />
 
       {errorMessage ? (
         <div className="banner banner--error">{errorMessage}</div>
       ) : null}
-      {infoMessage ? (
-        <div className="toast-wrap">
-          <div className="toast">
-            <ToastIcon />
-            {infoMessage}
-          </div>
-        </div>
-      ) : null}
+      <Toast message={infoMessage} />
 
       {view === "history" ? (
         <div className={statusView.rootClassName}>

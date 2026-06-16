@@ -1,25 +1,21 @@
 import { extractQueryIdFromUrl } from "../api/deepwikiApi";
-import {
-  fingerprintWikiPage,
-  parseFullWiki,
-  parseWikiPage,
-} from "../parser/deepwikiWikiParser";
 import { SETTINGS_KEY } from "../shared/constants";
 import type {
   CaptureDeepWikiSessionPayload,
-  GetWikiPageSnapshotResult,
   ReportPageStatusPayload,
   RuntimeRequest,
   RuntimeResponse,
-  WikiPageDetectedPayload,
 } from "../shared/messages";
 import type { CaptureResult, CaptureStatus, Settings } from "../shared/types";
-import {
-  debounce,
-  ensureErrorMessage,
-  sendRuntimeMessage,
-} from "../shared/utils";
+import { ensureErrorMessage, sendRuntimeMessage } from "../shared/utils";
 import { isWikiPageUrl } from "../shared/wikiUrl";
+import { observeWikiPage } from "./observer";
+import {
+  captureRscMessages,
+  reportWikiFingerprint,
+  snapshotCurrentPage,
+  snapshotFullWiki,
+} from "./probe";
 
 let currentStatus: CaptureStatus = {
   supported: false,
@@ -27,8 +23,6 @@ let currentStatus: CaptureStatus = {
   reason: "idle",
 };
 
-let wikiObserver: MutationObserver | null = null;
-let latestRscRaw: { url: string; raw: string } | null = null;
 let messageListenerRegistered = false;
 let isCapturing = false;
 
@@ -121,30 +115,6 @@ async function captureSession(
   return currentStatus;
 }
 
-async function waitForRscRaw(timeoutMs = 1200): Promise<string | null> {
-  if (latestRscRaw?.url === location.href) {
-    return latestRscRaw.raw;
-  }
-
-  window.postMessage({ source: "wikeep-rsc-request" }, location.origin);
-
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const timer = window.setInterval(() => {
-      if (latestRscRaw?.url === location.href) {
-        window.clearInterval(timer);
-        resolve(latestRscRaw.raw);
-        return;
-      }
-
-      if (Date.now() - started >= timeoutMs) {
-        window.clearInterval(timer);
-        resolve(null);
-      }
-    }, 100);
-  });
-}
-
 function handleRuntimeMessage(
   request: RuntimeRequest,
   _sender: chrome.runtime.MessageSender,
@@ -172,12 +142,8 @@ function handleRuntimeMessage(
     request.command === "GET_WIKI_PAGE_SNAPSHOT" ||
     request.command === "SAVE_WIKI_PAGE"
   ) {
-    void waitForRscRaw(2500).then((rscRaw) => {
-      const snapshot = parseWikiPage(document, location.href, rscRaw);
-      sendResponse({
-        ok: true,
-        data: { snapshot } satisfies GetWikiPageSnapshotResult,
-      });
+    void snapshotCurrentPage().then((snapshot) => {
+      sendResponse({ ok: true, data: { snapshot } });
     });
     return true;
   }
@@ -186,12 +152,8 @@ function handleRuntimeMessage(
     request.command === "GET_FULL_WIKI_SNAPSHOT" ||
     request.command === "SAVE_FULL_WIKI"
   ) {
-    void waitForRscRaw(2500).then((rscRaw) => {
-      const snapshot = parseFullWiki(document, location.href, rscRaw);
-      sendResponse({
-        ok: true,
-        data: { snapshot } satisfies GetWikiPageSnapshotResult,
-      });
+    void snapshotFullWiki().then((snapshot) => {
+      sendResponse({ ok: true, data: { snapshot } });
     });
     return true;
   }
@@ -203,29 +165,10 @@ function ensureMessageListener(): void {
   messageListenerRegistered = true;
 }
 
-function reportWikiFingerprint(): void {
-  const fp = fingerprintWikiPage(document, location.href);
-  if (!fp) return;
-
-  void sendRuntimeMessage<void, WikiPageDetectedPayload>("WIKI_PAGE_DETECTED", {
-    fingerprint: { url: location.href, ...fp },
-  }).catch(() => undefined);
-}
-
 function initWikiPageMode(): void {
-  window.addEventListener("message", (e: MessageEvent) => {
-    if (e.source !== window) return;
-    const data = e.data as { source?: string; url?: string; raw?: string };
-    if (data?.source === "wikeep-rsc" && data.url && data.raw) {
-      latestRscRaw = { url: data.url, raw: data.raw };
-    }
-  });
-
+  captureRscMessages();
   reportWikiFingerprint();
-  wikiObserver?.disconnect();
-  wikiObserver = new MutationObserver(debounce(reportWikiFingerprint, 600));
-  wikiObserver.observe(document.body, { childList: true, subtree: true });
-
+  observeWikiPage(reportWikiFingerprint);
   ensureMessageListener();
 }
 
