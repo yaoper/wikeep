@@ -13,14 +13,51 @@ function getElementText(element: HTMLElement): string {
   return element.innerText || element.textContent || "";
 }
 
+function scoreContentRootCandidate(
+  element: HTMLElement,
+  pageTitle: string,
+): number {
+  const text = getElementText(element).trim();
+  if (!text) return Number.NEGATIVE_INFINITY;
+
+  let score = text.length;
+  const heading = element.querySelector("h1")?.textContent?.trim() ?? "";
+
+  if (heading && normalizeText(heading) === normalizeText(pageTitle)) {
+    score += 100_000;
+  }
+
+  if (element.matches("main, article, [role='main']")) {
+    score += 10_000;
+  }
+
+  if (element.closest("main, article, [role='main']")) {
+    score += 5_000;
+  }
+
+  score += element.querySelectorAll("h2, h3").length * 500;
+  score += element.querySelectorAll("hr").length * 100;
+
+  return score;
+}
+
 export function findContentRoot(document: Document): HTMLElement | null {
+  const pageTitle = normalizeText(
+    document.querySelector("h1")?.textContent?.trim() ||
+      document.title.replace(/\s*\|\s*DeepWiki$/i, ""),
+  );
+
   const candidates = Array.from(
     document.querySelectorAll<HTMLElement>('[class*="prose"]'),
-  );
+  ).filter((candidate) => getElementText(candidate).trim().length >= 200);
+
   if (candidates.length === 0) return null;
+
   return (
     candidates.sort(
-      (a, b) => getElementText(b).length - getElementText(a).length,
+      (a, b) =>
+        scoreContentRootCandidate(b, pageTitle) -
+        scoreContentRootCandidate(a, pageTitle),
     )[0] ?? null
   );
 }

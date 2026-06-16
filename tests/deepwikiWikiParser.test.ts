@@ -4,10 +4,14 @@ import {
   parseWikiPage,
 } from "../src/parser/deepwikiWikiParser";
 
-function loadDom(html: string, url: string) {
+function loadDom(
+  html: string,
+  url: string,
+  title = "Repository Structure | facebook/react | DeepWiki",
+) {
   document.body.innerHTML = html;
   Object.defineProperty(document, "title", {
-    value: "Repository Structure | facebook/react | DeepWiki",
+    value: title,
     configurable: true,
   });
   Object.defineProperty(window, "location", {
@@ -53,6 +57,55 @@ const REPOSITORY_OVERVIEW = `
     <p>This second visible section is also part of the current overview page.</p>
   </div>`;
 
+const MULTI_PROSE_REPOSITORY_OVERVIEW = `
+  <aside>
+    <div class="prose prose-invert">
+      <h1>React Repository Overview</h1>
+      <p>The React repository is a monorepo containing the core React library, its renderers, and supporting packages.</p>
+      <p>Sources: package.json and README.md</p>
+    </div>
+  </aside>
+  <main>
+    <div class="prose prose-invert">
+      <h1>React Repository Overview</h1>
+      <details>
+        <summary>Relevant source files</summary>
+        <ul>
+          <li><a href="https://github.com/facebook/react/blob/bf76955e/README.md?plain=1">README.md</a></li>
+          <li><a href="https://github.com/facebook/react/blob/bf76955e/package.json">package.json</a></li>
+        </ul>
+      </details>
+      <hr />
+      <p>The React repository is a monorepo containing the core React library, its renderers (like React DOM and React Native), developer tools, the React Compiler, and various related packages. Its primary purpose is to provide a unified development environment for all parts of the React ecosystem, enabling consistent testing, dependency management, coordinated releases, and cross-package optimizations through shared infrastructure.</p>
+      <p>The repository is organized into several major subsystems:</p>
+      <ul>
+        <li><strong>Core React Packages</strong>: react, react-reconciler, and scheduler.</li>
+        <li><strong>Renderers</strong>: react-dom, react-native, react-art, and react-test-renderer.</li>
+        <li><strong>React Compiler</strong>: compile-time transformations for React components.</li>
+        <li><strong>Developer Tools</strong>: react-devtools for inspection and profiling.</li>
+        <li><strong>Build System and Tooling</strong>: scripts and release infrastructure.</li>
+      </ul>
+      <p>Sources: <a href="https://github.com/facebook/react/blob/bf76955e/package.json#L1-L5">package.json</a> <a href="https://github.com/facebook/react/blob/bf76955e/README.md?plain=1#L1-L79">README.md</a></p>
+      <hr />
+      <h2>Repository Structure and Packages</h2>
+      <p>This visible child-summary section is part of the current overview page.</p>
+      <h2>Core React Packages</h2>
+      <p>Core package details remain visible on the current page.</p>
+      <h2>Rendering Targets</h2>
+      <p>Renderer details remain visible on the current page.</p>
+      <h2>React Compiler</h2>
+      <p>Compiler details remain visible on the current page.</p>
+      <h2>Developer Tools</h2>
+      <p>DevTools details remain visible on the current page.</p>
+      <h2>Build System and Tooling</h2>
+      <p>This section is also part of the current overview page.</p>
+      <h2>Feature Flags System</h2>
+      <p>Feature flags details remain visible on the current page.</p>
+      <h2>How the Pieces Fit Together</h2>
+      <p>This concluding section is still part of the current page.</p>
+    </div>
+  </main>`;
+
 describe("parseWikiPage", () => {
   beforeEach(() =>
     loadDom(
@@ -79,7 +132,10 @@ describe("parseWikiPage", () => {
   });
 
   it("uses only the matching RSC page markdown when available", () => {
-    const repeated = "This page section contains the source markdown for one page only. ".repeat(8);
+    const repeated =
+      "This page section contains the source markdown for one page only. ".repeat(
+        8,
+      );
     const rscRaw = [
       "# Glossary",
       "Glossary content that must not be saved with this page.",
@@ -100,6 +156,7 @@ describe("parseWikiPage", () => {
     expect(snap?.markdownSource).toBe("rsc");
     expect(snap?.markdown).toContain("# Repository Structure and Packages");
     expect(snap?.markdown).toContain("```mermaid");
+    expect(snap?.hasDiagrams).toBe(true);
     expect(snap?.markdown).not.toContain("Glossary content");
     expect(snap?.markdown).not.toContain("Build content");
   });
@@ -122,6 +179,28 @@ describe("parseWikiPage", () => {
     expect(snap?.markdown).toContain("Build System and Tooling");
     expect(snap?.markdown).toContain("This visible child-summary section");
     expect(snap?.markdown).toContain("This second visible section");
+  });
+
+  it("prefers the main article prose when multiple prose roots exist", () => {
+    loadDom(
+      MULTI_PROSE_REPOSITORY_OVERVIEW,
+      "https://deepwiki.com/facebook/react/1-react-repository-overview",
+      "React Repository Overview | facebook/react | DeepWiki",
+    );
+
+    const snap = parseWikiPage(document, location.href);
+
+    expect(snap?.title).toBe("React Repository Overview");
+    expect(snap?.markdownSource).toBe("dom");
+    expect(snap?.markdown).toContain("Relevant source files");
+    expect(snap?.markdown).toContain("Repository Structure and Packages");
+    expect(snap?.markdown).toContain("Core React Packages");
+    expect(snap?.markdown).toContain("Rendering Targets");
+    expect(snap?.markdown).toContain("React Compiler");
+    expect(snap?.markdown).toContain("Developer Tools");
+    expect(snap?.markdown).toContain("Build System and Tooling");
+    expect(snap?.markdown).toContain("Feature Flags System");
+    expect(snap?.markdown).toContain("How the Pieces Fit Together");
   });
 
   it("fingerprint matches parse hash for identical content", () => {
