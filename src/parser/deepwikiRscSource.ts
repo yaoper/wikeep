@@ -72,53 +72,68 @@ function endIndexFromUtf8ByteLength(
   return bytes === byteLength ? index : null;
 }
 
-function extractRscTextRecords(unescaped: string): RscTextRecord[] {
-  const markers: Array<{
-    index: number;
-    contentStart: number;
-    contentEnd: number;
-    token: string;
-  }> = [];
-  const re = /(?:^|\n|\d,)([0-9a-z]+):T([0-9a-f]+),1,/g;
-  let match: RegExpExecArray | null;
+function extractRscTextRecords(joined: string): RscTextRecord[] {
+  const records: RscTextRecord[] = [];
+  
+  const firstT = joined.indexOf(":T");
+  if (firstT === -1) return [];
 
-  while ((match = re.exec(unescaped))) {
+  let startIdx = firstT;
+  while (startIdx > 0 && /[0-9a-z]/i.test(joined[startIdx - 1])) {
+    startIdx--;
+  }
+  
+  let currentPos = startIdx;
+  
+  while (currentPos < joined.length) {
+    const re = /^([0-9a-z]+):T([0-9a-f]+),(?:1,)?/i;
+    const slice = joined.slice(currentPos, currentPos + 100);
+    const match = re.exec(slice);
+    if (!match) {
+      const nextT = joined.indexOf(":T", currentPos);
+      if (nextT === -1) break;
+      
+      let nextStartIdx = nextT;
+      while (nextStartIdx > currentPos && /[0-9a-z]/i.test(joined[nextStartIdx - 1])) {
+        nextStartIdx--;
+      }
+      currentPos = nextStartIdx;
+      continue;
+    }
+    
     const token = match[1];
     const lengthHex = match[2];
-    if (!token || !lengthHex) continue;
-
-    const contentStart = match.index + match[0].length;
+    const headerLength = match[0].length;
+    
+    if (!token || !lengthHex) {
+      currentPos += headerLength;
+      continue;
+    }
+    
+    const contentStart = currentPos + headerLength;
     const byteLength = Number.parseInt(lengthHex, 16);
+    
     const contentEnd = Number.isFinite(byteLength)
-      ? (endIndexFromUtf8ByteLength(unescaped, contentStart, byteLength) ??
-        Math.min(contentStart + byteLength, unescaped.length))
+      ? (endIndexFromUtf8ByteLength(joined, contentStart, byteLength) ??
+        Math.min(contentStart + byteLength, joined.length))
       : contentStart;
-
-    markers.push({
-      index: match.index,
-      contentStart,
-      contentEnd,
+                       
+    const escapedContent = joined.slice(contentStart, contentEnd);
+    const content = decodeRscText(escapedContent).trim();
+    
+    records.push({
       token,
+      content,
     });
+    
+    currentPos = contentEnd;
+    
+    while (currentPos < joined.length && !/[0-9a-z]/i.test(joined[currentPos])) {
+      currentPos++;
+    }
   }
-
-  return markers
-    .map((marker, index) => {
-      const nextMarker = markers[index + 1];
-      const exactContent = unescaped
-        .slice(marker.contentStart, marker.contentEnd)
-        .trim();
-
-      return {
-        token: marker.token,
-        content: /#{1,6} /.test(exactContent)
-          ? exactContent
-          : unescaped
-              .slice(marker.contentStart, nextMarker?.index ?? unescaped.length)
-              .trim(),
-      };
-    })
-    .filter((record) => /#{1,6} /.test(record.content));
+  
+  return records.filter((r) => /#{1,6} /.test(r.content));
 }
 
 function extractPageContentToken(
@@ -222,7 +237,7 @@ function extractMarkdownBody(joined: string): string | null {
   if (!joined) return null;
 
   const unescaped = decodeRscText(joined);
-  const records = extractRscTextRecords(unescaped);
+  const records = extractRscTextRecords(joined);
   const recordBody = records
     .map((record) => record.content)
     .filter((content) => /^#\s+\S/m.test(content))
@@ -245,7 +260,7 @@ export function extractWikiMarkdownFromRsc(
 ): string | null {
   const unescaped = decodeRscText(joined);
   const pageToken = extractPageContentToken(unescaped, options);
-  const records = extractRscTextRecords(unescaped);
+  const records = extractRscTextRecords(joined);
   const tokenMarkdown = pageToken
     ? records.find((record) => record.token === pageToken)?.content
     : findRecordByTitle(records, options)?.content;

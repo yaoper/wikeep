@@ -263,17 +263,29 @@ async function requestWikiSnapshot(
   tabId: number,
   command: "GET_WIKI_PAGE_SNAPSHOT" | "GET_FULL_WIKI_SNAPSHOT",
 ): Promise<GetWikiPageSnapshotResult["snapshot"]> {
-  const response = (await chrome.tabs.sendMessage(tabId, {
-    command,
-  } satisfies RuntimeRequest)) as RuntimeResponse<GetWikiPageSnapshotResult>;
+  console.log("[wikeep bg] requestWikiSnapshot to tab:", tabId, "command:", command);
+  try {
+    const response = (await chrome.tabs.sendMessage(tabId, {
+      command,
+    } satisfies RuntimeRequest)) as RuntimeResponse<GetWikiPageSnapshotResult>;
 
-  if (!response.ok) {
-    throw new Error(
-      response.error?.message ?? "Failed to get wiki page snapshot.",
-    );
+    console.log("[wikeep bg] received response:", response);
+    if (!response) {
+      console.error("[wikeep bg] response is undefined, lastError:", chrome.runtime.lastError);
+      throw new Error(chrome.runtime.lastError?.message ?? "Response is undefined");
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "Failed to get wiki page snapshot.",
+      );
+    }
+
+    return response.data?.snapshot ?? null;
+  } catch (err) {
+    console.error("[wikeep bg] requestWikiSnapshot failed:", err);
+    throw err;
   }
-
-  return response.data?.snapshot ?? null;
 }
 
 async function saveWikiPage(
