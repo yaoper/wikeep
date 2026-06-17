@@ -64,3 +64,24 @@ await build({
     },
   },
 });
+
+await build({
+  configFile: false,
+  publicDir: false,
+  build: {
+    outDir: "dist",
+    emptyOutDir: false,
+    copyPublicDir: false,
+    lib: {
+      entry: resolve(projectRoot, "src/content/devinSourceProbe.ts"),
+      name: "WikeepDevinSourceProbe",
+      formats: ["iife"],
+      fileName: () => "devinSourceProbe.js",
+    },
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: true,
+      },
+    },
+  },
+});

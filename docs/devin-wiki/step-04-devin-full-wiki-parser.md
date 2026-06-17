@@ -1,3 +1,20 @@
+# Step 4 — New DOM-traversal full-wiki builder
+
+**File:** `src/parser/devinWikiParser.ts` (NEW)
+
+## Why
+
+`parseFullWiki` is RSC-only (`if (!parts || !rscRaw) return null;`) and cannot be
+reused for Devin. We build the full wiki by walking the sidebar: click each
+outline button, wait for `.prose-main` to settle (including lazy diagrams),
+convert to markdown, and compile. The snapshot is hand-constructed.
+
+It reuses the exported helpers from `deepwikiWikiParser.ts`
+(`findContentRoot`, `sanitizeForMarkdown`) and `elementToMarkdown`.
+
+## Full file
+
+```ts
 import type { WikiPageSnapshot } from "../shared/types";
 import { normalizeText, stableHash } from "../shared/utils";
 import { parseWikiUrl } from "../shared/wikiUrl";
@@ -73,16 +90,9 @@ async function waitForSectionSettled(
   });
 }
 
-/**
- * @param fetchSectionMarkdown Optional async getter for the active section's
- *   raw Markdown (supplied by the MAIN-world Devin probe). When it returns a
- *   value, diagrams are preserved as ```mermaid fences; otherwise we fall back
- *   to DOM->Turndown, which can only emit diagram placeholders.
- */
 export async function buildFullWikiFromDom(
   document: Document,
   url: string,
-  fetchSectionMarkdown?: () => Promise<string | null>,
 ): Promise<WikiPageSnapshot | null> {
   const parts = parseWikiUrl(url);
   if (!parts) return null;
@@ -94,7 +104,6 @@ export async function buildFullWikiFromDom(
   const sections: string[] = [];
   const labels: string[] = [];
   let previousHeading = "";
-  let usedFiber = false;
 
   for (const btn of buttons) {
     const label = (btn.getAttribute("aria-label") ?? "").trim();
@@ -106,18 +115,8 @@ export async function buildFullWikiFromDom(
 
     previousHeading = root.querySelector("h1")?.textContent?.trim() ?? previousHeading;
 
-    let md: string | null = null;
-    if (fetchSectionMarkdown) {
-      const fiber = await fetchSectionMarkdown();
-      if (fiber && fiber.trim()) {
-        md = fiber.trim();
-        usedFiber = true;
-      }
-    }
-    if (!md) {
-      const sanitized = sanitizeForMarkdown(root);
-      md = elementToMarkdown(sanitized, { sourceUrl: location.href }).trim();
-    }
+    const sanitized = sanitizeForMarkdown(root);
+    const md = elementToMarkdown(sanitized, { sourceUrl: location.href }).trim();
     if (md) {
       sections.push(md);
       labels.push(label);
@@ -140,7 +139,7 @@ export async function buildFullWikiFromDom(
     sectionPath: FULL_WIKI_SECTION_PATH,
     title: `${repoFullName} Full Wiki`,
     markdown,
-    markdownSource: usedFiber ? "fiber" : "dom",
+    markdownSource: "dom",
     contentHash: stableHash(markdown),
     relatedSections: labels,
     wordCount: markdown.split(/\s+/).filter(Boolean).length,
@@ -148,3 +147,19 @@ export async function buildFullWikiFromDom(
     capturedAt: Date.now(),
   };
 }
+```
+
+## Decisions & caveats
+
+- **Reuses sanitization.** `sanitizeForMarkdown` already strips hover-only icons
+  and replaces real diagrams with `data-wikeep-diagram` placeholders, so diagram
+  handling matches single-page saves.
+- **Settle heuristic.** We require both an h1 change and one stable content-length
+  poll before reading, with a 1000ms hard cap. Raise the cap if a repo has very
+  heavy diagrams.
+- **Hash restore.** We set `location.hash` back to the user's starting section. If
+  the original had no hash, this clears to `#` — acceptable; refine if needed.
+- **`url` field** is synthetic (so the full-wiki record is distinct from any single
+  page) and mirrors DeepWiki's `#wikeep-full-wiki` convention.
+- **`findContentRoot` requires the export.** It is already exported from
+  `deepwikiWikiParser.ts` (verified). No change needed there beyond Step 3's title tweak.

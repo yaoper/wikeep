@@ -1,18 +1,30 @@
 import type { BackupData, WikiPage, WikiPageSnapshot } from "../shared/types";
 import { normalizeText } from "../shared/utils";
+import { type WikiSource, wikiSourceFromUrl } from "../shared/wikiUrl";
 import { getDb } from "./db";
 
 const SCHEMA_VERSION = 1;
 const FULL_WIKI_SECTION_PATH = "__full-wiki";
 
 export function buildWikiPageId(
-  snapshot: Pick<WikiPageSnapshot, "owner" | "repo" | "sectionPath" | "kind">,
+  snapshot: Pick<
+    WikiPageSnapshot,
+    "owner" | "repo" | "sectionPath" | "kind" | "url"
+  >,
 ): string {
-  const base = `wiki:${snapshot.owner}/${snapshot.repo}`;
+  // Namespace Devin pages so they never collide with a DeepWiki repo of the
+  // same owner/repo. DeepWiki IDs are left unprefixed for back-compat.
+  const source = wikiSourceFromUrl(snapshot.url);
+  const prefix = source === "devin" ? "wiki:devin:" : "wiki:";
+  const base = `${prefix}${snapshot.owner}/${snapshot.repo}`;
   if (snapshot.kind === "full-wiki") {
     return `${base}/${FULL_WIKI_SECTION_PATH}`;
   }
   return snapshot.sectionPath ? `${base}/${snapshot.sectionPath}` : base;
+}
+
+function wikiPageSourceLabel(source: WikiSource): WikiPage["source"] {
+  return source === "devin" ? "devin-wiki" : "deepwiki-wiki";
 }
 
 export async function upsertWikiPage(
@@ -28,16 +40,20 @@ export async function upsertWikiPage(
     existing.contentHash === snapshot.contentHash &&
     existing.indexedCommit === snapshot.indexedCommit;
 
+  // "rsc" (DeepWiki) and "fiber" (Devin) both carry the original Markdown with
+  // diagram source; "dom" is the lossy fallback. Protect either rich source
+  // from being overwritten by a later DOM snapshot.
+  const isRich = (s: WikiPageSnapshot["markdownSource"]): boolean =>
+    s === "rsc" || s === "fiber";
+
   const wouldDowngrade =
-    sameContent &&
-    existing.markdownSource === "rsc" &&
-    snapshot.markdownSource !== "rsc";
+    sameContent && !!existing && isRich(existing.markdownSource) && !isRich(snapshot.markdownSource);
 
   const wouldDowngradeDiagrams =
     !!existing &&
-    existing.markdownSource === "rsc" &&
+    isRich(existing.markdownSource) &&
     existing.hasDiagrams &&
-    snapshot.markdownSource !== "rsc";
+    !isRich(snapshot.markdownSource);
 
   const shouldPreserveExisting = wouldDowngrade || wouldDowngradeDiagrams;
 
@@ -51,7 +67,7 @@ export async function upsertWikiPage(
 
   const page: WikiPage = {
     id,
-    source: "deepwiki-wiki",
+    source: wikiPageSourceLabel(wikiSourceFromUrl(snapshot.url)),
     kind: snapshot.kind ?? "page",
     owner: snapshot.owner,
     repo: snapshot.repo,

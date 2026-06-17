@@ -159,11 +159,21 @@ export function formatWikiPageAsMarkdown(page: WikiPage): string {
 }
 
 export function buildWikiPageMarkdownFilename(page: WikiPage): string {
-  const name = page.sectionPath
-    ? `${page.repoFullName}-${page.sectionPath}`
-    : page.repoFullName;
+  // Source label distinguishes deepwiki.com vs app.devin.ai exports.
+  const source = page.source === "devin-wiki" ? "devin" : "deepwiki";
+
+  const segments = [page.repoFullName];
+  // Devin section paths are bare numbers (e.g. "5.2"), so include the page
+  // title for readability. DeepWiki slugs already embed the title.
+  if (source === "devin" && page.kind !== "full-wiki" && page.title) {
+    segments.push(page.title);
+  }
+  if (page.sectionPath) {
+    segments.push(page.sectionPath);
+  }
+
   const date = new Date(page.updatedAt).toISOString().slice(0, 10);
-  return `wikeep-${sanitizeFilename(name)}-${date}.md`;
+  return `wikeep-${source}-${sanitizeFilename(segments.join("-"))}-${date}.md`;
 }
 
 export function debounce<A extends unknown[]>(

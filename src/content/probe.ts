@@ -25,6 +25,57 @@ export function captureRscMessages(): void {
   rscMessageListenerRegistered = true;
 }
 
+// --- Devin MAIN-world Markdown probe ---------------------------------------
+let devinReqSeq = 0;
+const devinPending = new Map<number, (markdown: string | null) => void>();
+let devinListenerRegistered = false;
+
+export function captureDevinMessages(): void {
+  if (devinListenerRegistered) return;
+
+  window.addEventListener("message", (e: MessageEvent) => {
+    if (e.source !== window) return;
+    const data = e.data as {
+      source?: string;
+      requestId?: number;
+      markdown?: string | null;
+    };
+    if (
+      data?.source === "wikeep-devin-md" &&
+      typeof data.requestId === "number"
+    ) {
+      const cb = devinPending.get(data.requestId);
+      if (cb) {
+        devinPending.delete(data.requestId);
+        cb(data.markdown ?? null);
+      }
+    }
+  });
+
+  devinListenerRegistered = true;
+}
+
+/** Ask the MAIN-world probe for the current Devin page's raw Markdown. */
+export function requestDevinMarkdown(timeoutMs = 2000): Promise<string | null> {
+  const requestId = ++devinReqSeq;
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      devinPending.delete(requestId);
+      resolve(null);
+    }, timeoutMs);
+
+    devinPending.set(requestId, (markdown) => {
+      window.clearTimeout(timer);
+      resolve(markdown);
+    });
+
+    window.postMessage(
+      { source: "wikeep-devin-md-request", requestId },
+      location.origin,
+    );
+  });
+}
+
 async function waitForRscRaw(timeoutMs = 1200): Promise<string | null> {
   if (latestRscRaw?.url === location.href) {
     return latestRscRaw.raw;
@@ -54,9 +105,11 @@ function isDevinPage(): boolean {
 }
 
 export async function snapshotCurrentPage(): Promise<WikiPageSnapshot | null> {
-  // Devin has no RSC stream; parse the DOM immediately.
+  // Devin has no RSC stream, but the original Markdown (with ```mermaid fences)
+  // lives in React props. Pull it from the MAIN-world probe; fall back to DOM.
   if (isDevinPage()) {
-    return parseWikiPage(document, location.href, null);
+    const fiberMarkdown = await requestDevinMarkdown(2000);
+    return parseWikiPage(document, location.href, null, fiberMarkdown);
   }
 
   const rscRaw = await waitForRscRaw(2500);
@@ -64,9 +117,12 @@ export async function snapshotCurrentPage(): Promise<WikiPageSnapshot | null> {
 }
 
 export async function snapshotFullWiki(): Promise<WikiPageSnapshot | null> {
-  // Devin has no RSC stream; traverse the sidebar DOM and compile.
+  // Devin has no RSC stream; traverse the sidebar DOM and pull each section's
+  // Markdown from the MAIN-world probe so diagrams are preserved.
   if (isDevinPage()) {
-    return buildFullWikiFromDom(document, location.href);
+    return buildFullWikiFromDom(document, location.href, () =>
+      requestDevinMarkdown(2000),
+    );
   }
 
   const rscRaw = await waitForRscRaw(2500);

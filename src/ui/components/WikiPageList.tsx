@@ -57,8 +57,23 @@ function ExportIcon() {
   );
 }
 
+function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function getPageLabel(item: WikiPage): string {
   if (item.kind === 'full-wiki') return 'full wiki';
+  // Devin section ids are bare numbers; combine with a title slug to match
+  // DeepWiki's "<number>-<slug>" form, e.g. "1.1-getting-started-setup".
+  if (item.source === 'devin-wiki') {
+    const slug = item.title ? slugifyTitle(item.title) : '';
+    if (item.sectionPath && slug) return `${item.sectionPath}-${slug}`;
+    return item.sectionPath ?? slug ?? 'overview';
+  }
+  // DeepWiki section paths already encode the name ("2-core-reconciler-architecture").
   return item.sectionPath ?? 'overview';
 }
 

@@ -11,6 +11,7 @@ import { ensureErrorMessage, sendRuntimeMessage } from "../shared/utils";
 import { isWikiPageUrl } from "../shared/wikiUrl";
 import { observeWikiPage } from "./observer";
 import {
+  captureDevinMessages,
   captureRscMessages,
   reportWikiFingerprint,
   snapshotCurrentPage,
@@ -167,6 +168,7 @@ function ensureMessageListener(): void {
 
 function initWikiPageMode(): void {
   captureRscMessages();
+  captureDevinMessages();
   reportWikiFingerprint();
   observeWikiPage(reportWikiFingerprint);
   ensureMessageListener();

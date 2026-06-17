@@ -1,4 +1,4 @@
-import type { WikiPageSnapshot } from "../shared/types";
+import type { WikiMarkdownSource, WikiPageSnapshot } from "../shared/types";
 import { normalizeText, stableHash } from "../shared/utils";
 import { parseWikiUrl } from "../shared/wikiUrl";
 import {
@@ -109,9 +109,45 @@ function extractIndexedCommit(root: HTMLElement): string | undefined {
   return href?.match(/\/blob\/([0-9a-f]{7,40})\//)?.[1];
 }
 
-function extractTitle(document: Document, root: HTMLElement): string {
-  const h1 = root.querySelector("h1")?.textContent?.trim();
+/**
+ * Read an <h1>'s heading text without the interactive copy-anchor affordance.
+ * Devin's heading contains a "copy link" control whose text ("Link", and a
+ * "copied!" toast) would otherwise concatenate into the title, e.g.
+ * "Getting Started & SetupLink copied!".
+ */
+function cleanHeadingText(h1: HTMLElement | null): string {
+  if (!h1) return "";
+  const clone = h1.cloneNode(true) as HTMLElement;
+  clone
+    .querySelectorAll("a, button, svg, [role='button'], [aria-hidden='true']")
+    .forEach((node) => node.remove());
+  return (clone.textContent || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s*Link\s*copied!?\s*$/i, "")
+    .replace(/\s*copied!?\s*$/i, "")
+    .trim();
+}
+
+/** First Markdown heading text, e.g. "# Getting Started & Setup" -> "Getting Started & Setup". */
+function firstMarkdownHeading(markdown?: string | null): string {
+  if (!markdown) return "";
+  const m = markdown.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m);
+  return m ? m[1].trim() : "";
+}
+
+function extractTitle(
+  document: Document,
+  root: HTMLElement,
+  preMarkdown?: string | null,
+): string {
+  // The authoritative source (Devin fiber / RSC) Markdown gives the cleanest title.
+  const fromMarkdown = firstMarkdownHeading(preMarkdown);
+  if (fromMarkdown) return fromMarkdown;
+
+  const h1 = cleanHeadingText(root.querySelector("h1"));
   if (h1) return h1;
+
   return normalizeText(document.title.replace(/\s*\|\s*(DeepWiki|Devin)\s*$/i, ""));
 }
 
@@ -133,6 +169,7 @@ export function parseWikiPage(
   document: Document,
   url: string,
   rscRaw?: string | null,
+  preMarkdown?: string | null,
 ): WikiPageSnapshot | null {
   const parts = parseWikiUrl(url);
   if (!parts) return null;
@@ -142,17 +179,34 @@ export function parseWikiPage(
     return null;
   }
 
-  const title = extractTitle(document, root);
   const sanitized = sanitizeForMarkdown(root);
-  const rscMarkdown = rscRaw
-    ? extractWikiMarkdownFromRsc(rscRaw, {
-        title,
-        sectionPath: parts.sectionPath,
-      })
-    : null;
+
+  // Devin: the original Markdown (with ```mermaid fences) is supplied directly
+  // from the page's React props via the MAIN-world probe. Prefer it over both
+  // RSC and DOM so diagrams survive.
+  const fiberMarkdown =
+    preMarkdown && preMarkdown.trim().length > 0
+      ? normalizeText(preMarkdown)
+      : null;
+
+  // Prefer the Markdown heading for the title (avoids DOM copy-anchor artifacts).
+  const title = extractTitle(document, root, fiberMarkdown);
+  const rscMarkdown =
+    !fiberMarkdown && rscRaw
+      ? extractWikiMarkdownFromRsc(rscRaw, {
+          title,
+          sectionPath: parts.sectionPath,
+        })
+      : null;
   const markdown =
-    rscMarkdown ?? elementToMarkdown(sanitized, { sourceUrl: url });
-  const markdownSource = rscMarkdown ? "rsc" : "dom";
+    fiberMarkdown ??
+    rscMarkdown ??
+    elementToMarkdown(sanitized, { sourceUrl: url });
+  const markdownSource: WikiMarkdownSource = fiberMarkdown
+    ? "fiber"
+    : rscMarkdown
+      ? "rsc"
+      : "dom";
   const cleanedText = normalizeText(getElementText(sanitized));
 
   if (DEBUG_WIKI_SAVE) {
