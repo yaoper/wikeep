@@ -1,7 +1,12 @@
-import { extractQueryIdFromUrl } from "../api/deepwikiApi";
+import {
+  buildCapturePayloadFromDeepWikiSession,
+  extractQueryIdFromUrl,
+  fetchDevinSession,
+} from "../api/deepwikiApi";
 import { SETTINGS_KEY } from "../shared/constants";
 import type {
   CaptureDeepWikiSessionPayload,
+  CaptureDomSnapshotPayload,
   ReportPageStatusPayload,
   RuntimeRequest,
   RuntimeResponse,
@@ -52,6 +57,57 @@ async function loadSettings(): Promise<Settings> {
   }
 }
 
+function isDevinHost(): boolean {
+  return window.location.host === "app.devin.ai";
+}
+
+/** Read the Devin bearer token + org id from the page's localStorage. */
+function readDevinAuth(): { token: string; orgId?: string } | null {
+  try {
+    const token = JSON.parse(localStorage.getItem("auth1_session") ?? "{}")
+      ?.token as string | undefined;
+    if (!token) return null;
+
+    let orgId: string | undefined;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i) ?? "";
+      const match = `${key}${localStorage.getItem(key) ?? ""}`.match(
+        /org-[0-9a-f]{32}/,
+      );
+      if (match) {
+        orgId = match[0];
+        break;
+      }
+    }
+    return { token, orgId };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Capture a Devin session. The authenticated session API needs the page's
+ * bearer token, so the content script fetches and builds the snapshot here,
+ * then persists it through the DOM-snapshot path.
+ */
+async function captureDevinSession(queryId: string): Promise<CaptureResult> {
+  const auth = readDevinAuth();
+  if (!auth) {
+    throw new Error("Devin session auth token not found. Reload and sign in.");
+  }
+
+  const session = await fetchDevinSession(queryId, auth);
+  const { snapshot } = buildCapturePayloadFromDeepWikiSession(
+    session,
+    window.location.href,
+  );
+
+  return sendRuntimeMessage<CaptureResult, CaptureDomSnapshotPayload>(
+    "CAPTURE_DOM_SNAPSHOT",
+    { snapshot },
+  );
+}
+
 async function captureSession(
   queryId: string,
   force = false,
@@ -84,13 +140,15 @@ async function captureSession(
       return currentStatus;
     }
 
-    const result = await sendRuntimeMessage<
-      CaptureResult,
-      CaptureDeepWikiSessionPayload
-    >("CAPTURE_DEEPWIKI_SESSION", {
-      queryId,
-      sourceUrl: window.location.href,
-    });
+    const result = isDevinHost()
+      ? await captureDevinSession(queryId)
+      : await sendRuntimeMessage<
+          CaptureResult,
+          CaptureDeepWikiSessionPayload
+        >("CAPTURE_DEEPWIKI_SESSION", {
+          queryId,
+          sourceUrl: window.location.href,
+        });
 
     setStatus({
       active: result.pending,

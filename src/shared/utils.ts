@@ -1,4 +1,9 @@
-import type { Conversation, Message, WikiPage } from "./types";
+import type {
+  Conversation,
+  Message,
+  MessageCitation,
+  WikiPage,
+} from "./types";
 import type { RuntimeCommand, RuntimeResponse } from "./messages";
 
 export function normalizeText(value: string): string {
@@ -122,6 +127,15 @@ export function formatConversationAsMarkdown(
     lines.push("");
     lines.push(content);
     lines.push("");
+
+    const sources = formatMessageSources(message.metadata?.citations);
+    if (sources.length > 0) {
+      lines.push("**Sources:**");
+      lines.push("");
+      lines.push(...sources);
+      lines.push("");
+    }
+
     lines.push("---");
     lines.push("");
   }
@@ -129,10 +143,38 @@ export function formatConversationAsMarkdown(
   return lines.join("\n");
 }
 
+/**
+ * Render a message's source citations as Markdown lines in DeepWiki's style:
+ * `path/to/File.js` [103-320]()
+ */
+function formatMessageSources(
+  citations: MessageCitation[] | undefined,
+): string[] {
+  if (!citations || citations.length === 0) return [];
+
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const c of citations) {
+    if (!c.filePath) continue;
+    const key = `${c.filePath}:${c.rangeStart}-${c.rangeEnd}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(`- \`${c.filePath}\` [${c.rangeStart}-${c.rangeEnd}]()`);
+  }
+  return lines;
+}
+
 export function buildMarkdownFilename(conversation: Conversation): string {
+  // Match wiki-page naming with a "session" marker:
+  // wikeep-<source>-session-<repo>-<question>-<date>.md
+  const source = conversation.sourceUrl?.includes("app.devin.ai")
+    ? "devin"
+    : "deepwiki";
+  const repo = conversation.metadata?.repoNames?.[0];
   const question = normalizeText(conversation.question) || "session";
+  const segments = repo ? [repo, question] : [question];
   const date = new Date(conversation.updatedAt).toISOString().slice(0, 10);
-  return `wikeep-${sanitizeFilename(question)}-${date}.md`;
+  return `wikeep-${source}-session-${sanitizeFilename(segments.join("-"))}-${date}.md`;
 }
 
 export function formatWikiPageAsMarkdown(page: WikiPage): string {

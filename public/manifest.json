@@ -24,7 +24,8 @@
       "matches": [
         "https://deepwiki.com/search/*",
         "https://deepwiki.com/*",
-        "https://app.devin.ai/org/*/wiki/*"
+        "https://app.devin.ai/org/*/wiki/*",
+        "https://app.devin.ai/search/*"
       ],
       "js": ["content.js"],
       "run_at": "document_end"

@@ -32,6 +32,7 @@ without `rscRaw`. Existing DeepWiki behavior is untouched.
 | 7 | [step-07-verification.md](step-07-verification.md) | Build + live verification checklist |
 | 8 | [step-08-diagrams-fiber.md](step-08-diagrams-fiber.md) | Preserve Mermaid via MAIN-world React-fiber probe |
 | 9 | [step-09-source-naming.md](step-09-source-naming.md) | Source-aware ids + export filenames (deepwiki/devin) |
+| 10 | [step-10-devin-sessions.md](step-10-devin-sessions.md) | Save Devin Ask sessions (app.devin.ai/search/*) |
 
 ## No-change confirmations
 

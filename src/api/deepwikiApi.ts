@@ -8,7 +8,9 @@ import type {
 } from "./deepwikiTypes";
 
 const API_BASE_URL = "https://api.devin.ai";
+const DEVIN_API_BASE_URL = "https://app.devin.ai";
 const DEEPWIKI_HOST = "deepwiki.com";
+const DEVIN_HOST = "app.devin.ai";
 const RELEVANT_CONTEXT_PATTERN =
   /<relevant_context>[\s\S]*?<\/relevant_context>/gi;
 
@@ -16,7 +18,9 @@ export function extractQueryIdFromUrl(url: string): string | null {
   try {
     const parsedUrl = new URL(url);
 
-    if (parsedUrl.host !== DEEPWIKI_HOST) {
+    // Both DeepWiki and Devin use /search/<queryId>; the same session API
+    // (different host/auth) serves both.
+    if (parsedUrl.host !== DEEPWIKI_HOST && parsedUrl.host !== DEVIN_HOST) {
       return null;
     }
 
@@ -25,6 +29,40 @@ export function extractQueryIdFromUrl(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+export interface DevinSessionAuth {
+  token: string;
+  orgId?: string;
+}
+
+/**
+ * Fetch a Devin session. Unlike DeepWiki's public endpoint, this is the
+ * authenticated app endpoint and requires the user's bearer token (read from
+ * the page's localStorage by the content script).
+ */
+export async function fetchDevinSession(
+  queryId: string,
+  auth: DevinSessionAuth,
+): Promise<DeepWikiQuerySession> {
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    authorization: `Bearer ${auth.token}`,
+  };
+  if (auth.orgId) {
+    headers["x-cog-org-id"] = auth.orgId;
+  }
+
+  const response = await fetch(
+    `${DEVIN_API_BASE_URL}/api/ada/query/${queryId}`,
+    { headers, credentials: "include" },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Devin session: ${response.status}`);
+  }
+
+  return (await response.json()) as DeepWikiQuerySession;
 }
 
 export function stripRelevantContext(value: string): string {
